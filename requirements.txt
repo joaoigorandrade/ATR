@@ -1,0 +1,13 @@
+# Python dependencies for Stage 2
+
+# MQTT client library
+paho-mqtt>=1.6.1
+
+# GUI library for Mine Simulation
+pygame>=2.5.0
+
+# GUI library for Mine Management (alternative to pygame)
+tkinter  # Usually comes with Python
+
+# Additional utilities
+python-dateutil>=2.8.2
