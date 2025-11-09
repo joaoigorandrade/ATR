@@ -5,8 +5,8 @@ Real-time automation project implementing an autonomous truck control system for
 ## Project Overview
 
 This system implements a simplified control system for autonomous mining trucks, covering:
-- **Stage 1 (COMPLETE):** Core C++ tasks with circular buffer synchronization
-- **Stage 2 (PENDING):** Python GUIs (Mine Simulation, Mine Management) and MQTT communication
+- **Stage 1 (COMPLETE ✅):** Core C++ tasks with circular buffer synchronization
+- **Stage 2 (COMPLETE ✅):** Python GUIs (Mine Simulation, Mine Management) and MQTT communication
 
 ## Key Features
 
@@ -20,11 +20,13 @@ This system implements a simplified control system for autonomous mining trucks,
 - Data Collector with CSV logging
 - Local Interface (Terminal-based HMI)
 
-⏳ **Pending (Stage 2):**
-- Mine Simulation GUI (Python + pygame)
-- Mine Management GUI (Python)
-- MQTT broker and pub/sub integration
-- Multi-truck support
+✅ **Implemented (Stage 2):**
+- Mine Simulation GUI (Python + pygame) with physics
+- Mine Management GUI (Python + tkinter) for SCADA
+- MQTT broker integration (Mosquitto)
+- Pub/sub communication between all components
+- Distributed system architecture
+- Fault injection and testing capabilities
 
 ## Project Structure
 
@@ -48,20 +50,41 @@ This system implements a simplified control system for autonomous mining trucks,
 - **CMake:** Version 3.14 or higher
 - **pthread:** Included in most Unix systems (Linux, macOS)
 
-### Build and Run
+### Stage 1 Only (C++ System)
 
 ```bash
-# From project root directory
+# Build
 mkdir -p build
 cd build
 cmake ..
 make
 
-# Run the system
+# Run
 cd ..
 ./build/truck_control
+```
 
-# Stop with Ctrl+C for graceful shutdown
+### Stage 2 (Full System with GUIs)
+
+```bash
+# Setup (first time only)
+./setup_stage2.sh
+
+# Run all components
+./run_stage2.sh
+
+# Or manually in 4 terminals:
+# Terminal 1:
+mosquitto
+
+# Terminal 2:
+python3 python_gui/mine_simulation.py
+
+# Terminal 3:
+python3 python_gui/mine_management.py
+
+# Terminal 4:
+./build/truck_control
 ```
 
 ### What You'll See
@@ -96,11 +119,18 @@ ACTUATOR OUTPUTS:
 
 ## Documentation
 
-📘 **[USER_GUIDE.md](USER_GUIDE.md)** - Comprehensive guide including:
+📘 **[USER_GUIDE.md](USER_GUIDE.md)** - Stage 1 comprehensive guide:
 - Detailed command reference
 - Code flow diagrams
 - Real-time automation concepts explained
 - Troubleshooting
+
+📘 **[STAGE2_GUIDE.md](STAGE2_GUIDE.md)** - Stage 2 integration guide:
+- MQTT setup and configuration
+- Python GUI usage
+- Distributed system architecture
+- Testing scenarios
+- MQTT message formats
 
 📄 **doc/** directory - Project specifications and requirements
 
@@ -130,13 +160,15 @@ ACTUATOR OUTPUTS:
   - [x] Terminal-based interface
   - [x] Comprehensive documentation
 
-- [ ] **Stage 2 Integration** - PENDING
-  - [ ] Mine Simulation GUI (Python + pygame)
-  - [ ] Mine Management GUI (Python)
-  - [ ] MQTT broker setup
-  - [ ] Publisher/Subscriber implementation
-  - [ ] Multi-truck support
-  - [ ] Performance testing
+- [x] **Stage 2 Integration** - COMPLETE
+  - [x] Mine Simulation GUI (Python + pygame)
+  - [x] Mine Management GUI (Python + tkinter)
+  - [x] MQTT broker integration (Mosquitto)
+  - [x] Publisher/Subscriber implementation
+  - [x] MQTT Bridge for C++/Python communication
+  - [x] Distributed system testing
+  - [x] Fault injection capabilities
+  - [x] Setup and run scripts
 
 ## Architecture
 
