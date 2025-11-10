@@ -114,7 +114,11 @@ class MQTTBridge:
             with open(filepath, 'w') as f:
                 json.dump(message_data, f)
 
-            print(f"[Bridge] MQTT -> File: {filename}")
+            # Only log important messages (not sensors or actuator commands)
+            if 'commands' in msg.topic and ('auto_mode' in data or 'manual_mode' in data):
+                print(f"[Bridge] Mode command received: {data}")
+            elif 'setpoint' in msg.topic:
+                print(f"[Bridge] Setpoint received: ({data.get('target_x')}, {data.get('target_y')})")
 
         except Exception as e:
             print(f"[Bridge] Error processing MQTT message: {e}")
@@ -132,13 +136,10 @@ class MQTTBridge:
                         message = json.load(f)
 
                     topic = message.get('topic', TOPIC_SENSORS)
-                    payload = json.dumps(message.get('payload', {}))
+                    payload = message.get('payload', {})
 
                     # Publish via MQTT
-                    self.mqtt_client.publish(topic, payload)
-
-                    filename = os.path.basename(filepath)
-                    print(f"[Bridge] File -> MQTT: {filename} on {topic}")
+                    self.mqtt_client.publish(topic, json.dumps(payload))
 
                     # Delete processed file
                     os.remove(filepath)

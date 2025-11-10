@@ -1,0 +1,7 @@
+{
+  "topic": "truck/1/commands",
+  "payload": {
+    "acceleration": 0,
+    "steering": 0
+  }
+}

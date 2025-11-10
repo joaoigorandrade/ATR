@@ -167,6 +167,20 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                     }
                 }
 
+                // Check if this is a mode command (not an actuator command)
+                // Mode commands have auto_mode, manual_mode, or rearm fields
+                // Actuator commands have acceleration and steering fields
+                bool has_auto_mode = payload_content.find("\"auto_mode\"") != std::string::npos;
+                bool has_manual_mode = payload_content.find("\"manual_mode\"") != std::string::npos;
+                bool has_rearm = payload_content.find("\"rearm\"") != std::string::npos;
+
+                // Skip actuator-only commands (our own published commands)
+                if (!has_auto_mode && !has_manual_mode && !has_rearm) {
+                    // This is an actuator command, not a mode command - delete and skip
+                    fs::remove(entry.path());
+                    continue;
+                }
+
                 // Parse command data from payload
                 cmd.auto_mode = extract_json_bool(payload_content, "auto_mode");
                 cmd.manual_mode = extract_json_bool(payload_content, "manual_mode");
@@ -175,8 +189,11 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                 // Delete processed file
                 fs::remove(entry.path());
 
-                std::cout << "[Main] Received command via MQTT: auto=" << cmd.auto_mode
-                          << " manual=" << cmd.manual_mode << " rearm=" << cmd.rearm << std::endl;
+                // Only log actual mode changes, not every command
+                if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
+                    std::cout << "[Main] Mode command: auto=" << cmd.auto_mode
+                              << " manual=" << cmd.manual_mode << " rearm=" << cmd.rearm << std::endl;
+                }
 
                 return true;
             }
@@ -244,6 +261,48 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
     }
 
     return false;
+}
+
+/**
+ * @brief Write actuator commands to MQTT bridge
+ * Writes JSON files to bridge/to_mqtt/ directory for MQTT publishing
+ */
+void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& output) {
+    const std::string bridge_dir = "bridge/to_mqtt";
+
+    try {
+        // Create directory if it doesn't exist
+        if (!fs::exists(bridge_dir)) {
+            fs::create_directories(bridge_dir);
+        }
+
+        // Generate unique filename with timestamp
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
+        long timestamp = ms.count();
+
+        std::ostringstream filename;
+        filename << bridge_dir << "/" << timestamp << "_truck_" << truck_id << "_commands.json";
+
+        // Create JSON content
+        std::ostringstream json_content;
+        json_content << "{\n"
+                    << "  \"topic\": \"truck/" << truck_id << "/commands\",\n"
+                    << "  \"payload\": {\n"
+                    << "    \"acceleration\": " << output.acceleration << ",\n"
+                    << "    \"steering\": " << output.steering << "\n"
+                    << "  }\n"
+                    << "}";
+
+        // Write to file
+        std::ofstream file(filename.str());
+        if (file.is_open()) {
+            file << json_content.str();
+            file.close();
+        }
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
 }
 
 /**
@@ -337,9 +396,9 @@ int main() {
             current_data = bridge_data;
             sensor_task.set_raw_data(current_data);
 
-            // Debug: Log MQTT data reception periodically
-            if (++bridge_read_count % 20 == 0) {
-                std::cout << "[Main] MQTT data: temp=" << bridge_data.temperature
+            // Reduced logging frequency: every 50 sensor readings (roughly 5 seconds)
+            if (++bridge_read_count % 50 == 0) {
+                std::cout << "[Main] Sensor update: temp=" << bridge_data.temperature
                           << "°C, pos=(" << bridge_data.position_x << "," << bridge_data.position_y << ")" << std::endl;
             }
         }
@@ -364,7 +423,13 @@ int main() {
         data_collector.set_truck_state(state);
         local_interface.set_truck_state(state);
 
+        // Get current position from buffer to calculate target angle
+        SensorData current_sensor = buffer.peek_latest();
+
+        // Get setpoint and calculate target angle based on current position
         NavigationSetpoint setpoint = route_planner.get_setpoint();
+        setpoint.target_angle = route_planner.calculate_target_angle(
+            current_sensor.position_x, current_sensor.position_y);
         nav_task.set_setpoint(setpoint);
 
         ActuatorOutput nav_output = nav_task.get_output();
@@ -372,6 +437,9 @@ int main() {
 
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
+
+        // Publish actuator commands to MQTT (for simulation)
+        write_actuator_commands_to_bridge(1, actuator_output);
 
         // Short sleep to prevent busy-waiting
         std::this_thread::sleep_for(std::chrono::milliseconds(50));

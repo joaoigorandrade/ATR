@@ -133,9 +133,10 @@ int NavigationControl::angle_controller(int current_angle, int target_angle) {
     // Simple proportional controller
     int control_output = static_cast<int>(KP_ANGLE * error);
 
-    // Clamp to valid range [-180, 180]
-    if (control_output > 180) control_output = 180;
-    if (control_output < -180) control_output = -180;
+    // Clamp to realistic truck steering limits [-30, 30] degrees
+    // Mining trucks have limited steering angles
+    if (control_output > 30) control_output = 30;
+    if (control_output < -30) control_output = -30;
 
     return control_output;
 }

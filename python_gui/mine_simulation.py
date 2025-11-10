@@ -211,11 +211,6 @@ class MineSimulation:
             self.mqtt_client.on_connect = self.on_mqtt_connect
             self.mqtt_client.on_message = self.on_mqtt_message
 
-            # Subscribe to command topics for all trucks
-            for truck_id in self.trucks.keys():
-                topic = MQTT_TOPIC_COMMANDS.format(truck_id)
-                self.mqtt_client.subscribe(topic)
-
             self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
             self.mqtt_client.loop_start()
             print(f"[MQTT] Connecting to broker at {MQTT_BROKER}:{MQTT_PORT}")
@@ -228,6 +223,12 @@ class MineSimulation:
         if rc == 0:
             self.mqtt_connected = True
             print("[MQTT] Connected successfully")
+
+            # Subscribe to command topics AFTER connection is established
+            for truck_id in self.trucks.keys():
+                topic = MQTT_TOPIC_COMMANDS.format(truck_id)
+                client.subscribe(topic)
+                print(f"[MQTT] Subscribed to {topic}")
         else:
             print(f"[MQTT] Connection failed with code {rc}")
 
@@ -249,7 +250,6 @@ class MineSimulation:
                 if 'steering' in command:
                     truck.steering = command['steering']
 
-                print(f"[MQTT] Truck {truck_id} command: acc={truck.acceleration}, steer={truck.steering}")
         except Exception as e:
             print(f"[MQTT] Error processing message: {e}")
 
