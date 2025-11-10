@@ -78,8 +78,9 @@ void CommandLogic::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
-        // Read sensor data from circular buffer (Consumer operation)
-        SensorData sensor_data = buffer_.read();
+        // Peek at latest sensor data (non-consuming read)
+        // Multiple tasks need to read sensor data, so we use peek instead of read
+        SensorData sensor_data = buffer_.peek_latest();
 
         {
             std::lock_guard<std::mutex> lock(state_mutex_);

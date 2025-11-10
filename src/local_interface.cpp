@@ -12,6 +12,7 @@ LocalInterface::LocalInterface(CircularBuffer& buffer, int update_period_ms)
     truck_state_.fault = false;
     truck_state_.automatic = false;
     latest_sensor_data_ = {};
+    buffer_count_ = 0;
 
     std::cout << "[Local Interface] Initialized (update_period=" << update_period_ms_ << "ms)" << std::endl;
 }
@@ -60,11 +61,14 @@ void LocalInterface::task_loop() {
 
     while (running_) {
         // Peek at latest sensor data
+        size_t buffer_count = buffer_.size();
         SensorData sensor_data = buffer_.peek_latest();
 
         {
             std::lock_guard<std::mutex> lock(display_mutex_);
             latest_sensor_data_ = sensor_data;
+            // Store buffer count for debugging
+            buffer_count_ = buffer_count;
         }
 
         // Display status
@@ -93,6 +97,9 @@ void LocalInterface::display_status() {
     std::cout << "  Mode:        " << (truck_state_.automatic ? "AUTOMATIC" : "MANUAL") << std::endl;
     std::cout << "  Fault:       " << (truck_state_.fault ? "FAULT DETECTED" : "OK") << std::endl;
     std::cout << std::endl;
+
+    // Debug: Show what we have before displaying
+    std::cout << "[DEBUG] Buffer count=" << buffer_count_ << ", temperature = " << latest_sensor_data_.temperature << std::endl;
 
     // Display sensor measurements
     std::cout << "SENSOR READINGS:" << std::endl;

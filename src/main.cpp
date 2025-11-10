@@ -213,12 +213,19 @@ int main() {
 
     // Main loop: Stage 2 - Read sensor data from MQTT bridge
     RawSensorData current_data = initial_data;
+    int bridge_read_count = 0;
     while (system_running) {
         // Try to read sensor data from MQTT bridge
         RawSensorData bridge_data;
         if (read_sensor_data_from_bridge(bridge_data)) {
             current_data = bridge_data;
             sensor_task.set_raw_data(current_data);
+
+            // Debug: Log MQTT data reception periodically
+            if (++bridge_read_count % 20 == 0) {
+                std::cout << "[Main] MQTT data: temp=" << bridge_data.temperature
+                          << "°C, pos=(" << bridge_data.position_x << "," << bridge_data.position_y << ")" << std::endl;
+            }
         }
 
         // Update states between tasks

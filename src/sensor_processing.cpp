@@ -80,6 +80,13 @@ void SensorProcessing::task_loop() {
         // Write processed data to circular buffer (Producer operation)
         buffer_.write(processed_data);
 
+        // Debug: Log temperature periodically (every 10 writes)
+        static int write_count = 0;
+        if (++write_count % 10 == 0) {
+            std::cout << "[Sensor Processing] Writing temp=" << processed_data.temperature
+                      << "°C to buffer" << std::endl;
+        }
+
         // Wait until next execution time (periodic task)
         next_execution += std::chrono::milliseconds(period_ms_);
         std::this_thread::sleep_until(next_execution);

@@ -90,6 +90,7 @@ private:
     TruckState truck_state_;                // Current truck state
     ActuatorOutput actuator_output_;        // Current actuator values
     SensorData latest_sensor_data_;         // Latest sensor readings
+    size_t buffer_count_;                   // Debug: buffer count
 };
 
 #endif // LOCAL_INTERFACE_H
