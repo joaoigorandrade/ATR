@@ -85,9 +85,10 @@ class MQTTBridge:
         if rc == 0:
             print("[Bridge] MQTT connected successfully")
             # Subscribe to topics that C++ needs to receive
+            client.subscribe(TOPIC_SENSORS)
             client.subscribe(TOPIC_COMMANDS)
             client.subscribe(TOPIC_SETPOINT)
-            print(f"[Bridge] Subscribed to: {TOPIC_COMMANDS}, {TOPIC_SETPOINT}")
+            print(f"[Bridge] Subscribed to: {TOPIC_SENSORS}, {TOPIC_COMMANDS}, {TOPIC_SETPOINT}")
         else:
             print(f"[Bridge] MQTT connection failed with code {rc}")
 

@@ -32,13 +32,21 @@ echo "========================================="
 echo ""
 echo "Starting in separate terminal windows..."
 echo ""
-echo "1. Mine Simulation (Pygame window)"
-echo "2. Mine Management (Tkinter window)"
-echo "3. C++ Truck Control (Terminal)"
+echo "1. MQTT Bridge (background)"
+echo "2. Mine Simulation (Pygame window)"
+echo "3. Mine Management (Tkinter window)"
+echo "4. C++ Truck Control (Terminal)"
 echo ""
 echo "Press Ctrl+C in this terminal to stop all components"
 echo "========================================="
 echo ""
+
+# Launch MQTT bridge first
+python3 python_gui/mqtt_bridge.py &
+BRIDGE_PID=$!
+echo "[Started] MQTT Bridge (PID: $BRIDGE_PID)"
+
+sleep 2
 
 # Launch components in background
 python3 python_gui/mine_simulation.py &
@@ -64,10 +72,10 @@ echo "To stop all components, press Ctrl+C"
 echo ""
 
 # Wait and handle shutdown
-trap "echo ''; echo 'Shutting down...'; kill $SIM_PID $MGMT_PID $TRUCK_PID 2>/dev/null; wait $SIM_PID $MGMT_PID $TRUCK_PID 2>/dev/null; echo 'All components stopped'; exit 0" INT TERM
+trap "echo ''; echo 'Shutting down...'; kill $BRIDGE_PID $SIM_PID $MGMT_PID $TRUCK_PID 2>/dev/null; wait $BRIDGE_PID $SIM_PID $MGMT_PID $TRUCK_PID 2>/dev/null; echo 'All components stopped'; exit 0" INT TERM
 
 # Wait for any process to exit
-wait $SIM_PID $MGMT_PID $TRUCK_PID
+wait $BRIDGE_PID $SIM_PID $MGMT_PID $TRUCK_PID
 
 echo ""
 echo "System stopped"

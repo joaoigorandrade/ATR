@@ -40,7 +40,7 @@ This system implements a simplified control system for autonomous mining trucks,
 ├── doc/              # Project specification documents
 ├── CMakeLists.txt    # Build configuration
 ├── README.md         # This file
-└── USER_GUIDE.md     # Comprehensive user and technical guide
+└── GUIDE.md          # Complete comprehensive guide
 ```
 
 ## Quick Start
@@ -119,18 +119,14 @@ ACTUATOR OUTPUTS:
 
 ## Documentation
 
-📘 **[USER_GUIDE.md](USER_GUIDE.md)** - Stage 1 comprehensive guide:
-- Detailed command reference
-- Code flow diagrams
-- Real-time automation concepts explained
-- Troubleshooting
-
-📘 **[STAGE2_GUIDE.md](STAGE2_GUIDE.md)** - Stage 2 integration guide:
-- MQTT setup and configuration
-- Python GUI usage
-- Distributed system architecture
-- Testing scenarios
-- MQTT message formats
+📘 **[GUIDE.md](GUIDE.md)** - Complete comprehensive guide covering:
+- Project overview and requirements
+- System architecture and implementation details
+- Installation and setup instructions (Stage 1 & 2)
+- Running commands and expected outputs
+- Detailed manual testing procedures with expected results
+- Code implementation explanations with file:line references
+- Troubleshooting guide for common issues
 
 📄 **doc/** directory - Project specifications and requirements
 
@@ -214,7 +210,7 @@ The system has been tested for:
 - Use Ctrl+C for graceful shutdown
 - Check `logs/` for error messages
 
-**See [USER_GUIDE.md](USER_GUIDE.md) for detailed troubleshooting.**
+**See [GUIDE.md](GUIDE.md) for detailed troubleshooting and complete documentation.**
 
 ## Author
 

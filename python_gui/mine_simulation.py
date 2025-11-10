@@ -160,6 +160,8 @@ class Truck:
         color = self.color
         if self.fault_electrical or self.fault_hydraulic:
             color = RED
+        elif self.temperature > 120:
+            color = RED
         elif self.temperature > 95:
             color = ORANGE
 

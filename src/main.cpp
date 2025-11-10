@@ -3,6 +3,9 @@
 #include <chrono>
 #include <csignal>
 #include <atomic>
+#include <fstream>
+#include <filesystem>
+#include <string>
 
 // Include all task headers
 #include "circular_buffer.h"
@@ -14,6 +17,12 @@
 #include "data_collector.h"
 #include "local_interface.h"
 
+// Simple JSON parsing for sensor data
+#include <sstream>
+#include <map>
+
+namespace fs = std::filesystem;
+
 // Global flag for graceful shutdown
 std::atomic<bool> system_running(true);
 
@@ -22,6 +31,103 @@ void signal_handler(int signal) {
         std::cout << "\n[Main] Shutdown signal received..." << std::endl;
         system_running = false;
     }
+}
+
+/**
+ * @brief Simple JSON value extractor for sensor data
+ * Extracts integer or boolean values from JSON strings
+ */
+int extract_json_int(const std::string& json, const std::string& key) {
+    size_t pos = json.find("\"" + key + "\"");
+    if (pos == std::string::npos) return 0;
+
+    pos = json.find(":", pos);
+    if (pos == std::string::npos) return 0;
+
+    size_t start = pos + 1;
+    while (start < json.length() && (json[start] == ' ' || json[start] == '\t')) start++;
+
+    size_t end = start;
+    while (end < json.length() && (isdigit(json[end]) || json[end] == '-')) end++;
+
+    if (end > start) {
+        return std::stoi(json.substr(start, end - start));
+    }
+    return 0;
+}
+
+bool extract_json_bool(const std::string& json, const std::string& key) {
+    size_t pos = json.find("\"" + key + "\"");
+    if (pos == std::string::npos) return false;
+
+    pos = json.find(":", pos);
+    if (pos == std::string::npos) return false;
+
+    size_t true_pos = json.find("true", pos);
+    size_t false_pos = json.find("false", pos);
+
+    if (true_pos != std::string::npos && (false_pos == std::string::npos || true_pos < false_pos)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Read and process sensor data from MQTT bridge
+ * Reads JSON files from bridge/from_mqtt/ directory containing sensor data
+ */
+bool read_sensor_data_from_bridge(RawSensorData& data) {
+    const std::string bridge_dir = "bridge/from_mqtt";
+
+    try {
+        if (!fs::exists(bridge_dir)) {
+            return false;
+        }
+
+        // Find all JSON files with "sensors" in the name
+        for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find("sensors") != std::string::npos) {
+
+                // Read file
+                std::ifstream file(entry.path());
+                if (!file.is_open()) continue;
+
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string json_content = buffer.str();
+                file.close();
+
+                // Extract the payload field first (MQTT bridge wraps data in payload)
+                size_t payload_pos = json_content.find("\"payload\"");
+                std::string payload_content = json_content;
+                if (payload_pos != std::string::npos) {
+                    // Find the opening brace of the payload object
+                    size_t payload_start = json_content.find("{", payload_pos);
+                    if (payload_start != std::string::npos) {
+                        payload_content = json_content.substr(payload_start);
+                    }
+                }
+
+                // Parse sensor data from payload
+                data.position_x = extract_json_int(payload_content, "position_x");
+                data.position_y = extract_json_int(payload_content, "position_y");
+                data.angle_x = extract_json_int(payload_content, "angle_x");
+                data.temperature = extract_json_int(payload_content, "temperature");
+                data.fault_electrical = extract_json_bool(payload_content, "fault_electrical");
+                data.fault_hydraulic = extract_json_bool(payload_content, "fault_hydraulic");
+
+                // Delete processed file
+                fs::remove(entry.path());
+
+                return true;
+            }
+        }
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
+
+    return false;
 }
 
 /**
@@ -105,28 +211,17 @@ int main() {
 
     std::cout << "[Main] System running. Press Ctrl+C to stop." << std::endl;
 
-    // Main loop: simulate changing conditions
-    int iteration = 0;
+    // Main loop: Stage 2 - Read sensor data from MQTT bridge
+    RawSensorData current_data = initial_data;
     while (system_running) {
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-
-        iteration++;
-
-        // Every 10 iterations, simulate a scenario
-        if (iteration % 10 == 0) {
-            // Scenario 1: Temperature increase (demonstration)
-            RawSensorData hot_data = initial_data;
-            hot_data.temperature = 100;  // High but not critical
-            sensor_task.set_raw_data(hot_data);
-
-            // Log event
-            data_collector.log_event("TEST", initial_data.position_x,
-                                    initial_data.position_y,
-                                    "Temperature increased for testing");
+        // Try to read sensor data from MQTT bridge
+        RawSensorData bridge_data;
+        if (read_sensor_data_from_bridge(bridge_data)) {
+            current_data = bridge_data;
+            sensor_task.set_raw_data(current_data);
         }
 
-        // Update states between tasks (simplified for Stage 1)
-        // In full integration, these would be automatic via shared memory/IPC
+        // Update states between tasks
         TruckState state = command_task.get_state();
         nav_task.set_truck_state(state);
         data_collector.set_truck_state(state);
@@ -141,14 +236,8 @@ int main() {
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
 
-        // Simulate truck movement (very simplified)
-        // In Stage 2, this will be done by Mine Simulation
-        if (!state.fault && state.automatic) {
-            // Move truck slightly towards target
-            initial_data.position_x += (actuator_output.acceleration > 0) ? 5 : 0;
-            initial_data.position_y += (actuator_output.acceleration > 0) ? 3 : 0;
-            sensor_task.set_raw_data(initial_data);
-        }
+        // Short sleep to prevent busy-waiting
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     // Graceful shutdown

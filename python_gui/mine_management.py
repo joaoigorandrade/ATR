@@ -376,6 +376,8 @@ class MineManagementGUI:
             # Determine color
             if truck.has_any_fault():
                 color = 'red'
+            elif truck.temperature > 95:
+                color = 'orange'
             elif truck.mode == "AUTO":
                 color = 'green'
             else:
