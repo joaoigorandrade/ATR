@@ -22,19 +22,25 @@ struct SensorData {
 };
 
 /**
- * @brief Thread-safe circular buffer for producer-consumer pattern
+ * @brief Thread-safe circular buffer for real-time control systems
  *
- * Implements a fixed-size circular buffer with semaphore-based synchronization.
- * Multiple producers (Sensor Processing) can write, and multiple consumers
- * (Command Logic, Navigation Control, etc.) can read concurrently.
+ * Implements a fixed-size circular buffer with overwrite semantics optimized
+ * for real-time control applications. Multiple producers (Sensor Processing)
+ * can write, and multiple consumers (Command Logic, Navigation Control, etc.)
+ * can read the latest data concurrently.
+ *
+ * Design rationale for real-time control:
+ * - Write operations NEVER block (overwrites oldest data when full)
+ * - Consumers use peek_latest() to access most recent state
+ * - Fresh data is prioritized over historical data
+ * - No consumer blocking on empty buffer (peek returns latest available)
  *
  * Synchronization mechanisms:
  * - Mutex: Protects critical sections during read/write operations
- * - Condition Variables: Signal when buffer state changes (empty/full)
+ * - Condition Variables: Signal when buffer state changes (for blocking read)
  *
  * This follows the classic Producer-Consumer synchronization pattern
- * covered in real-time automation (bounded buffer problem).
- * Using condition variables instead of semaphores for better portability.
+ * with modifications for hard real-time constraints.
  */
 class CircularBuffer {
 public:
@@ -53,8 +59,10 @@ public:
     /**
      * @brief Write sensor data to buffer (producer operation)
      *
-     * Blocks if buffer is full until space becomes available.
-     * Uses condition variable wait on not_full condition.
+     * Non-blocking write with overwrite semantics for real-time control.
+     * If buffer is full, overwrites the oldest data to ensure fresh data
+     * is always available. This prevents the producer from blocking,
+     * maintaining real-time constraints critical for control systems.
      *
      * @param data Sensor data to write
      */

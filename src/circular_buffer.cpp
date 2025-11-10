@@ -15,10 +15,16 @@ void CircularBuffer::write(const SensorData& data) {
     // Lock mutex for critical section
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Wait while buffer is full
-    // Condition variable automatically releases mutex and waits
-    // When notified, it re-acquires mutex before proceeding
-    not_full_.wait(lock, [this]() { return count_ < BUFFER_SIZE; });
+    // Overwriting behavior for real-time control systems:
+    // If buffer is full, overwrite the oldest data instead of blocking.
+    // This ensures the producer never blocks, maintaining real-time constraints.
+    // Fresh data is more valuable than old data in control applications.
+
+    if (count_ == BUFFER_SIZE) {
+        // Buffer is full - advance read index to discard oldest data
+        read_index_ = (read_index_ + 1) % BUFFER_SIZE;
+        count_--;  // Will be incremented back below
+    }
 
     // Critical section: write data to buffer
     buffer_[write_index_] = data;

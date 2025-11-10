@@ -131,6 +131,122 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
 }
 
 /**
+ * @brief Read and process commands from MQTT bridge
+ * Reads JSON files from bridge/from_mqtt/ directory containing command data
+ */
+bool read_commands_from_bridge(OperatorCommand& cmd) {
+    const std::string bridge_dir = "bridge/from_mqtt";
+
+    try {
+        if (!fs::exists(bridge_dir)) {
+            return false;
+        }
+
+        // Find all JSON files with "commands" in the name
+        for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find("commands") != std::string::npos) {
+
+                // Read file
+                std::ifstream file(entry.path());
+                if (!file.is_open()) continue;
+
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string json_content = buffer.str();
+                file.close();
+
+                // Extract the payload field first (MQTT bridge wraps data in payload)
+                size_t payload_pos = json_content.find("\"payload\"");
+                std::string payload_content = json_content;
+                if (payload_pos != std::string::npos) {
+                    // Find the opening brace of the payload object
+                    size_t payload_start = json_content.find("{", payload_pos);
+                    if (payload_start != std::string::npos) {
+                        payload_content = json_content.substr(payload_start);
+                    }
+                }
+
+                // Parse command data from payload
+                cmd.auto_mode = extract_json_bool(payload_content, "auto_mode");
+                cmd.manual_mode = extract_json_bool(payload_content, "manual_mode");
+                cmd.rearm = extract_json_bool(payload_content, "rearm");
+
+                // Delete processed file
+                fs::remove(entry.path());
+
+                std::cout << "[Main] Received command via MQTT: auto=" << cmd.auto_mode
+                          << " manual=" << cmd.manual_mode << " rearm=" << cmd.rearm << std::endl;
+
+                return true;
+            }
+        }
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
+
+    return false;
+}
+
+/**
+ * @brief Read and process setpoint data from MQTT bridge
+ * Reads JSON files from bridge/from_mqtt/ directory containing setpoint data
+ */
+bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
+    const std::string bridge_dir = "bridge/from_mqtt";
+
+    try {
+        if (!fs::exists(bridge_dir)) {
+            return false;
+        }
+
+        // Find all JSON files with "setpoint" in the name
+        for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find("setpoint") != std::string::npos) {
+
+                // Read file
+                std::ifstream file(entry.path());
+                if (!file.is_open()) continue;
+
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string json_content = buffer.str();
+                file.close();
+
+                // Extract the payload field first (MQTT bridge wraps data in payload)
+                size_t payload_pos = json_content.find("\"payload\"");
+                std::string payload_content = json_content;
+                if (payload_pos != std::string::npos) {
+                    // Find the opening brace of the payload object
+                    size_t payload_start = json_content.find("{", payload_pos);
+                    if (payload_start != std::string::npos) {
+                        payload_content = json_content.substr(payload_start);
+                    }
+                }
+
+                // Parse setpoint data from payload
+                setpoint.target_position_x = extract_json_int(payload_content, "target_x");
+                setpoint.target_position_y = extract_json_int(payload_content, "target_y");
+                setpoint.target_speed = extract_json_int(payload_content, "target_speed");
+
+                // Delete processed file
+                fs::remove(entry.path());
+
+                std::cout << "[Main] Received setpoint via MQTT: target=(" << setpoint.target_position_x
+                          << "," << setpoint.target_position_y << "), speed=" << setpoint.target_speed << "%" << std::endl;
+
+                return true;
+            }
+        }
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
+
+    return false;
+}
+
+/**
  * @brief Main entry point for Autonomous Truck Control System - Stage 1
  *
  * This integrates all core tasks:
@@ -226,6 +342,20 @@ int main() {
                 std::cout << "[Main] MQTT data: temp=" << bridge_data.temperature
                           << "°C, pos=(" << bridge_data.position_x << "," << bridge_data.position_y << ")" << std::endl;
             }
+        }
+
+        // Try to read commands from MQTT bridge
+        OperatorCommand bridge_cmd;
+        if (read_commands_from_bridge(bridge_cmd)) {
+            command_task.set_command(bridge_cmd);
+        }
+
+        // Try to read setpoint from MQTT bridge
+        NavigationSetpoint bridge_setpoint;
+        if (read_setpoint_from_bridge(bridge_setpoint)) {
+            route_planner.set_target_waypoint(bridge_setpoint.target_position_x,
+                                              bridge_setpoint.target_position_y,
+                                              bridge_setpoint.target_speed);
         }
 
         // Update states between tasks
