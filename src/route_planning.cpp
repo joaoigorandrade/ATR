@@ -39,10 +39,5 @@ int RoutePlanning::calculate_target_angle(int current_x, int current_y) const {
     double angle_rad = std::atan2(dy, dx);
     int angle_deg = static_cast<int>(angle_rad * 180.0 / M_PI);
 
-    // Normalize to [0, 360) range
-    if (angle_deg < 0) {
-        angle_deg += 360;
-    }
-
     return angle_deg;
 }

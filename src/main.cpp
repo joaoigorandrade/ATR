@@ -290,7 +290,8 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
                     << "  \"topic\": \"truck/" << truck_id << "/commands\",\n"
                     << "  \"payload\": {\n"
                     << "    \"acceleration\": " << output.acceleration << ",\n"
-                    << "    \"steering\": " << output.steering << "\n"
+                    << "    \"steering\": " << output.steering << ",\n"
+                    << "    \"arrived\": " << (output.arrived ? "true" : "false") << "\n"
                     << "  }\n"
                     << "}";
 
@@ -362,7 +363,7 @@ int main() {
     RawSensorData initial_data;
     initial_data.position_x = 100;
     initial_data.position_y = 200;
-    initial_data.angle_x = 45;
+    initial_data.angle_x = 0;
     initial_data.temperature = 75;  // Normal temperature
     initial_data.fault_electrical = false;
     initial_data.fault_hydraulic = false;

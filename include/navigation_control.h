@@ -117,10 +117,16 @@ private:
     NavigationSetpoint setpoint_;           // Current setpoint values
     TruckState truck_state_;                // Current truck state
     ActuatorOutput output_;                 // Current control outputs
+    double previous_distance_;              // Track previous distance for approach detection
 
     // Control gains (tunable parameters)
-    static constexpr double KP_SPEED = 0.5;   // Speed controller gain
+    static constexpr double KP_SPEED = 0.6;   // Speed controller gain
     static constexpr double KP_ANGLE = 1.0;   // Angle controller gain
+
+    // Arrival detection thresholds
+    static constexpr double ARRIVAL_DISTANCE_THRESHOLD = 4.0;  // Distance in units (increased for reliability)
+    static constexpr double ARRIVAL_ANGLE_THRESHOLD = 10.0;     // Angle error in degrees (relaxed)
+    static constexpr double DECELERATION_DISTANCE = 80.0;      // Start slowing down at this distance
 };
 
 #endif // NAVIGATION_CONTROL_H

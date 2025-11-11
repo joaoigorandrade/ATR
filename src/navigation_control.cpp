@@ -2,15 +2,20 @@
 #include <iostream>
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms)
     : buffer_(buffer),
       period_ms_(period_ms),
-      running_(false) {
+      running_(false),
+      previous_distance_(std::numeric_limits<double>::max()) {
 
     // Initialize with safe defaults
     truck_state_.fault = false;
     truck_state_.automatic = false;
+    output_.arrived = false;
+    output_.acceleration = 0;
+    output_.steering = 0;
 
     std::cout << "[Navigation Control] Initialized (period: " << period_ms_ << "ms)" << std::endl;
 }
@@ -46,7 +51,18 @@ void NavigationControl::stop() {
 
 void NavigationControl::set_setpoint(const NavigationSetpoint& setpoint) {
     std::lock_guard<std::mutex> lock(control_mutex_);
+
+    // Check if this is a new target position
+    bool new_target = (setpoint.target_position_x != setpoint_.target_position_x) ||
+                     (setpoint.target_position_y != setpoint_.target_position_y);
+
     setpoint_ = setpoint;
+
+    // Reset distance tracking for new target
+    if (new_target) {
+        previous_distance_ = std::numeric_limits<double>::max();
+        output_.arrived = false;
+    }
 }
 
 void NavigationControl::set_truck_state(const TruckState& state) {
@@ -73,28 +89,73 @@ void NavigationControl::task_loop() {
             bool controllers_enabled = truck_state_.automatic && !truck_state_.fault;
 
             if (controllers_enabled) {
-                // AUTOMATIC MODE: Execute control algorithms
-                output_.acceleration = speed_controller(
-                    sensor_data.position_x, sensor_data.position_y,
-                    setpoint_.target_position_x, setpoint_.target_position_y
-                );
+                // If we have already arrived, do nothing.
+                // The 'arrived' flag is reset by set_setpoint when a new target is given.
+                if (output_.arrived) {
+                    // Keep motors off.
+                    output_.acceleration = 0;
+                    output_.steering = 0;
+                } else {
+                    // NOT ARRIVED YET: Run navigation logic.
+                    int dx = setpoint_.target_position_x - sensor_data.position_x;
+                    int dy = setpoint_.target_position_y - sensor_data.position_y;
+                    double distance = std::sqrt(dx*dx + dy*dy);
 
-                output_.steering = angle_controller(
-                    sensor_data.angle_x,
-                    setpoint_.target_angle
-                );
+                    int angle_error = setpoint_.target_angle - sensor_data.angle_x;
+                    // Normalize angle error to [-180, 180]
+                    while (angle_error > 180) angle_error -= 360;
+                    while (angle_error < -180) angle_error += 360;
+                    double abs_angle_error = std::abs(angle_error);
 
+                    // Detect if we're moving away from target (overshoot detection)
+                    bool distance_increasing = distance > previous_distance_ &&
+                                              previous_distance_ < ARRIVAL_DISTANCE_THRESHOLD * 2;
+
+                    // Update previous distance for next iteration
+                    previous_distance_ = distance;
+
+                    // Check for arrival
+                    bool arrival_condition = (distance <= ARRIVAL_DISTANCE_THRESHOLD &&
+                                             abs_angle_error <= ARRIVAL_ANGLE_THRESHOLD) ||
+                                            (distance_increasing && distance < ARRIVAL_DISTANCE_THRESHOLD * 1.5);
+
+                    if (arrival_condition) {
+                        // TARGET REACHED: Set arrived flag and stop outputs
+                        output_.arrived = true;
+                        output_.acceleration = 0;
+                        output_.steering = 0;
+
+                        std::cout << "[Navigation Control] TARGET REACHED - Distance: "
+                                  << distance << ", Angle error: " << abs_angle_error << "°";
+                        if (distance_increasing) {
+                            std::cout << " (overshoot detected)";
+                        }
+                        std::cout << std::endl;
+
+                    } else {
+                        // STILL NAVIGATING: Execute control algorithms
+                        output_.acceleration = speed_controller(
+                            sensor_data.position_x, sensor_data.position_y,
+                            setpoint_.target_position_x, setpoint_.target_position_y
+                        );
+
+                        output_.steering = angle_controller(
+                            sensor_data.angle_x,
+                            setpoint_.target_angle
+                        );
+                    }
+                }
             } else {
                 // MANUAL MODE or FAULT: Bumpless transfer
-                // Set setpoints to current values to avoid control jumps
-                // when switching back to automatic
+                // Reset setpoints to current values to avoid control jumps
                 setpoint_.target_position_x = sensor_data.position_x;
                 setpoint_.target_position_y = sensor_data.position_y;
                 setpoint_.target_angle = sensor_data.angle_x;
 
-                // Controllers output zero (no influence)
+                // Controllers output zero and reset arrived status
                 output_.acceleration = 0;
                 output_.steering = 0;
+                output_.arrived = false;
             }
         }
 
@@ -111,9 +172,18 @@ int NavigationControl::speed_controller(int current_x, int current_y,
     int dy = target_y - current_y;
     double distance = std::sqrt(dx*dx + dy*dy);
 
-    // Simple proportional controller
-    // Acceleration proportional to distance from target
-    int control_output = static_cast<int>(KP_SPEED * distance);
+    // Improved proportional controller with deceleration zone
+    int control_output;
+
+    if (distance < DECELERATION_DISTANCE) {
+        // Within deceleration zone: reduce gain for smoother approach
+        // This prevents overshooting by slowing down earlier
+        double reduced_gain = KP_SPEED * (distance / DECELERATION_DISTANCE);
+        control_output = static_cast<int>(reduced_gain * distance);
+    } else {
+        // Far from target: normal proportional control
+        control_output = static_cast<int>(KP_SPEED * distance);
+    }
 
     // Clamp to valid range [-100, 100]
     if (control_output > 100) control_output = 100;

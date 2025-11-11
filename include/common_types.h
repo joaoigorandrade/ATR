@@ -41,9 +41,10 @@ struct OperatorCommand {
 struct ActuatorOutput {
     int acceleration;  // o_aceleracao: -100 to 100 (%)
     int steering;      // o_direcao: -180 to 180 (degrees)
+    bool arrived;      // Navigation reached target position
 
     // Default constructor
-    ActuatorOutput() : acceleration(0), steering(0) {}
+    ActuatorOutput() : acceleration(0), steering(0), arrived(false) {}
 };
 
 /**

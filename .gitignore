@@ -16,6 +16,7 @@ Makefile
 
 # Log files
 logs/
+bridge/
 
 # Python
 __pycache__/
