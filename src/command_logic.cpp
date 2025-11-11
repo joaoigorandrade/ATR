@@ -1,5 +1,5 @@
 #include "command_logic.h"
-#include <iostream>
+#include "logger.h"
 #include <chrono>
 
 CommandLogic::CommandLogic(CircularBuffer& buffer, int period_ms)
@@ -16,7 +16,7 @@ CommandLogic::CommandLogic(CircularBuffer& buffer, int period_ms)
     // Initialize sensor data with safe defaults
     latest_sensor_data_ = {};
 
-    std::cout << "[Command Logic] Initialized (period: " << period_ms_ << "ms)" << std::endl;
+    LOG_INFO(CL) << "event" << "init" << "period_ms" << period_ms_;
 }
 
 CommandLogic::~CommandLogic() {
@@ -31,7 +31,7 @@ void CommandLogic::start() {
     running_ = true;
     task_thread_ = std::thread(&CommandLogic::task_loop, this);
 
-    std::cout << "[Command Logic] Task started" << std::endl;
+    LOG_INFO(CL) << "event" << "start";
 }
 
 void CommandLogic::stop() {
@@ -45,7 +45,7 @@ void CommandLogic::stop() {
         task_thread_.join();
     }
 
-    std::cout << "[Command Logic] Task stopped" << std::endl;
+    LOG_INFO(CL) << "event" << "stop";
 }
 
 void CommandLogic::set_command(const OperatorCommand& cmd) {
@@ -98,13 +98,13 @@ void CommandLogic::task_loop() {
             // Update fault state
             if (fault_detected) {
                 if (!current_state_.fault) {
-                    std::cout << "[Command Logic] FAULT DETECTED!" << std::endl;
+                    LOG_CRIT(CL) << "event" << "fault_detect";
                 }
                 current_state_.fault = true;
                 fault_rearmed_ = false;
             } else if (current_state_.fault && fault_rearmed_) {
                 // Fault cleared and operator rearmed
-                std::cout << "[Command Logic] Fault cleared and rearmed" << std::endl;
+                LOG_INFO(CL) << "event" << "fault_clear";
                 current_state_.fault = false;
                 fault_rearmed_ = false;
             }
@@ -124,21 +124,21 @@ void CommandLogic::process_commands() {
     if (pending_command_.auto_mode && !current_state_.automatic) {
         if (!current_state_.fault) {
             current_state_.automatic = true;
-            std::cout << "[Command Logic] Switched to AUTOMATIC mode" << std::endl;
+            LOG_INFO(CL) << "event" << "mode_change" << "mode" << "auto";
         } else {
-            std::cout << "[Command Logic] Cannot switch to automatic: FAULT present" << std::endl;
+            LOG_WARN(CL) << "event" << "mode_reject" << "reason" << "fault";
         }
     }
 
     if (pending_command_.manual_mode && current_state_.automatic) {
         current_state_.automatic = false;
-        std::cout << "[Command Logic] Switched to MANUAL mode" << std::endl;
+        LOG_INFO(CL) << "event" << "mode_change" << "mode" << "manual";
     }
 
     // Process fault rearm command
     if (pending_command_.rearm && current_state_.fault) {
         fault_rearmed_ = true;
-        std::cout << "[Command Logic] Fault REARM acknowledged" << std::endl;
+        LOG_INFO(CL) << "event" << "rearm_ack";
     }
 }
 

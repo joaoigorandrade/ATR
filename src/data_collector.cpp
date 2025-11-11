@@ -1,5 +1,5 @@
 #include "data_collector.h"
-#include <iostream>
+#include "logger.h"
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -19,9 +19,10 @@ DataCollector::DataCollector(CircularBuffer& buffer, int truck_id, int log_perio
     filename << "logs/truck_" << truck_id_ << "_log.csv";
     log_filename_ = filename.str();
 
-    std::cout << "[Data Collector] Initialized (truck_id=" << truck_id_
-              << ", log_period=" << log_period_ms_ << "ms)" << std::endl;
-    std::cout << "[Data Collector] Log file: " << log_filename_ << std::endl;
+    LOG_INFO(DC) << "event" << "init"
+                 << "truck_id" << truck_id_
+                 << "period_ms" << log_period_ms_
+                 << "file" << log_filename_;
 }
 
 DataCollector::~DataCollector() {
@@ -38,7 +39,7 @@ void DataCollector::start() {
     running_ = true;
     task_thread_ = std::thread(&DataCollector::task_loop, this);
 
-    std::cout << "[Data Collector] Task started" << std::endl;
+    LOG_INFO(DC) << "event" << "start";
 }
 
 void DataCollector::stop() {
@@ -54,7 +55,7 @@ void DataCollector::stop() {
 
     close_log_file();
 
-    std::cout << "[Data Collector] Task stopped" << std::endl;
+    LOG_INFO(DC) << "event" << "stop";
 }
 
 void DataCollector::set_truck_state(const TruckState& state) {
@@ -142,8 +143,9 @@ void DataCollector::open_log_file() {
         if (log_file_.tellp() == 0) {
             log_file_ << "Timestamp,TruckID,State,PositionX,PositionY,Description" << std::endl;
         }
+        LOG_DEBUG(DC) << "event" << "file_open" << "file" << log_filename_;
     } else {
-        std::cerr << "[Data Collector] ERROR: Failed to open log file: " << log_filename_ << std::endl;
+        LOG_ERR(DC) << "event" << "file_err" << "file" << log_filename_;
     }
 }
 

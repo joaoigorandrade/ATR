@@ -1,7 +1,7 @@
 #include "sensor_processing.h"
+#include "logger.h"
 #include <chrono>
 #include <numeric>
-#include <iostream>
 
 SensorProcessing::SensorProcessing(CircularBuffer& buffer, size_t filter_order, int period_ms)
     : buffer_(buffer),
@@ -24,7 +24,7 @@ void SensorProcessing::start() {
     running_ = true;
     task_thread_ = std::thread(&SensorProcessing::task_loop, this);
 
-    std::cout << "[Sensor Processing] Task started (period: " << period_ms_ << "ms, filter order: " << filter_order_ << ")" << std::endl;
+    LOG_INFO(SP) << "event" << "start" << "period_ms" << period_ms_ << "filter_order" << filter_order_;
 }
 
 void SensorProcessing::stop() {
@@ -38,7 +38,7 @@ void SensorProcessing::stop() {
         task_thread_.join();
     }
 
-    std::cout << "[Sensor Processing] Task stopped" << std::endl;
+    LOG_INFO(SP) << "event" << "stop";
 }
 
 void SensorProcessing::set_raw_data(const RawSensorData& data) {
@@ -80,11 +80,13 @@ void SensorProcessing::task_loop() {
         // Write processed data to circular buffer (Producer operation)
         buffer_.write(processed_data);
 
-        // Debug: Log temperature periodically (every 10 writes)
+        // Log periodically (every 50 writes to reduce verbosity)
         static int write_count = 0;
-        if (++write_count % 10 == 0) {
-            std::cout << "[Sensor Processing] Writing temp=" << processed_data.temperature
-                      << "°C to buffer" << std::endl;
+        if (++write_count % 50 == 0) {
+            LOG_DEBUG(SP) << "event" << "write"
+                          << "temp" << processed_data.temperature
+                          << "pos_x" << processed_data.position_x
+                          << "pos_y" << processed_data.position_y;
         }
 
         // Wait until next execution time (periodic task)

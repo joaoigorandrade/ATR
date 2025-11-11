@@ -1,4 +1,5 @@
 #include "circular_buffer.h"
+#include "logger.h"
 #include <cstring>
 
 CircularBuffer::CircularBuffer()
@@ -24,6 +25,12 @@ void CircularBuffer::write(const SensorData& data) {
         // Buffer is full - advance read index to discard oldest data
         read_index_ = (read_index_ + 1) % BUFFER_SIZE;
         count_--;  // Will be incremented back below
+
+        // Log overwrite events (important for debugging data loss)
+        static int overwrite_count = 0;
+        if (++overwrite_count % 100 == 0) {
+            LOG_WARN(CB) << "event" << "overwrite" << "count" << overwrite_count;
+        }
     }
 
     // Critical section: write data to buffer

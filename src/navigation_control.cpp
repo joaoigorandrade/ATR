@@ -1,5 +1,5 @@
 #include "navigation_control.h"
-#include <iostream>
+#include "logger.h"
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -17,7 +17,7 @@ NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms)
     output_.acceleration = 0;
     output_.steering = 0;
 
-    std::cout << "[Navigation Control] Initialized (period: " << period_ms_ << "ms)" << std::endl;
+    LOG_INFO(NC) << "event" << "init" << "period_ms" << period_ms_;
 }
 
 NavigationControl::~NavigationControl() {
@@ -32,7 +32,7 @@ void NavigationControl::start() {
     running_ = true;
     task_thread_ = std::thread(&NavigationControl::task_loop, this);
 
-    std::cout << "[Navigation Control] Task started" << std::endl;
+    LOG_INFO(NC) << "event" << "start";
 }
 
 void NavigationControl::stop() {
@@ -46,7 +46,7 @@ void NavigationControl::stop() {
         task_thread_.join();
     }
 
-    std::cout << "[Navigation Control] Task stopped" << std::endl;
+    LOG_INFO(NC) << "event" << "stop";
 }
 
 void NavigationControl::set_setpoint(const NavigationSetpoint& setpoint) {
@@ -125,12 +125,10 @@ void NavigationControl::task_loop() {
                         output_.acceleration = 0;
                         output_.steering = 0;
 
-                        std::cout << "[Navigation Control] TARGET REACHED - Distance: "
-                                  << distance << ", Angle error: " << abs_angle_error << "°";
-                        if (distance_increasing) {
-                            std::cout << " (overshoot detected)";
-                        }
-                        std::cout << std::endl;
+                        LOG_INFO(NC) << "event" << "arrived"
+                                     << "dist" << static_cast<int>(distance)
+                                     << "ang_err" << static_cast<int>(abs_angle_error)
+                                     << "overshoot" << (distance_increasing ? 1 : 0);
 
                     } else {
                         // STILL NAVIGATING: Execute control algorithms

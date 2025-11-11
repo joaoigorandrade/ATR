@@ -8,6 +8,7 @@
 #include <string>
 
 // Include all task headers
+#include "logger.h"
 #include "circular_buffer.h"
 #include "sensor_processing.h"
 #include "command_logic.h"
@@ -28,7 +29,7 @@ std::atomic<bool> system_running(true);
 
 void signal_handler(int signal) {
     if (signal == SIGINT) {
-        std::cout << "\n[Main] Shutdown signal received..." << std::endl;
+        LOG_INFO(MAIN) << "event" << "shutdown_signal";
         system_running = false;
     }
 }
@@ -189,10 +190,12 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                 // Delete processed file
                 fs::remove(entry.path());
 
-                // Only log actual mode changes, not every command
+                // Log mode changes
                 if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
-                    std::cout << "[Main] Mode command: auto=" << cmd.auto_mode
-                              << " manual=" << cmd.manual_mode << " rearm=" << cmd.rearm << std::endl;
+                    LOG_INFO(MAIN) << "event" << "cmd_recv"
+                                   << "auto" << cmd.auto_mode
+                                   << "manual" << cmd.manual_mode
+                                   << "rearm" << cmd.rearm;
                 }
 
                 return true;
@@ -250,8 +253,10 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
                 // Delete processed file
                 fs::remove(entry.path());
 
-                std::cout << "[Main] Received setpoint via MQTT: target=(" << setpoint.target_position_x
-                          << "," << setpoint.target_position_y << "), speed=" << setpoint.target_speed << "%" << std::endl;
+                LOG_INFO(MAIN) << "event" << "setpoint_recv"
+                               << "tgt_x" << setpoint.target_position_x
+                               << "tgt_y" << setpoint.target_position_y
+                               << "speed" << setpoint.target_speed;
 
                 return true;
             }
@@ -326,22 +331,26 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
  * - Event-driven fault handling
  */
 int main() {
+    // Initialize logger (can be controlled via LOG_LEVEL env variable)
+    Logger::init(Logger::Level::INFO);
+
     // Register signal handler for graceful shutdown
     std::signal(SIGINT, signal_handler);
 
     std::cout << "========================================" << std::endl;
     std::cout << "Autonomous Mining Truck Control System" << std::endl;
-    std::cout << "Stage 1: Core Tasks Integration" << std::endl;
+    std::cout << "Stage 2: Full Integration" << std::endl;
     std::cout << "Real-Time Automation Project" << std::endl;
     std::cout << "========================================" << std::endl;
-    std::cout << std::endl;
+
+    LOG_INFO(MAIN) << "event" << "system_start" << "stage" << 2;
 
     // Create shared circular buffer (200 positions as specified)
     CircularBuffer buffer;
-    std::cout << "[Main] Circular buffer created (size: 200)" << std::endl;
+    LOG_INFO(MAIN) << "event" << "buffer_create" << "size" << 200;
 
     // Create all tasks
-    std::cout << "\n[Main] Creating tasks..." << std::endl;
+    LOG_DEBUG(MAIN) << "event" << "creating_tasks";
 
     SensorProcessing sensor_task(buffer, 5, 100);        // Filter order 5, 100ms period
     CommandLogic command_task(buffer, 50);               // 50ms period
@@ -351,10 +360,10 @@ int main() {
     DataCollector data_collector(buffer, 1, 1000);       // Truck ID 1, 1s logging
     LocalInterface local_interface(buffer, 2000);        // 2s display update
 
-    std::cout << "[Main] All tasks created successfully" << std::endl;
+    LOG_DEBUG(MAIN) << "event" << "tasks_created";
 
     // Set up initial configuration
-    std::cout << "\n[Main] Configuring system..." << std::endl;
+    LOG_DEBUG(MAIN) << "event" << "configuring";
 
     // Set a target waypoint for demonstration
     route_planner.set_target_waypoint(500, 300, 50);  // Target (500,300), speed 50%
@@ -370,8 +379,7 @@ int main() {
     sensor_task.set_raw_data(initial_data);
 
     // Start all tasks
-    std::cout << "\n[Main] Starting all tasks..." << std::endl;
-    std::cout << "========================================\n" << std::endl;
+    LOG_DEBUG(MAIN) << "event" << "starting_tasks";
 
     sensor_task.start();
     command_task.start();
@@ -385,7 +393,7 @@ int main() {
     // Start local interface last (it will clear the screen)
     local_interface.start();
 
-    std::cout << "[Main] System running. Press Ctrl+C to stop." << std::endl;
+    LOG_INFO(MAIN) << "event" << "system_ready";
 
     // Main loop: Stage 2 - Read sensor data from MQTT bridge
     RawSensorData current_data = initial_data;
@@ -397,10 +405,12 @@ int main() {
             current_data = bridge_data;
             sensor_task.set_raw_data(current_data);
 
-            // Reduced logging frequency: every 50 sensor readings (roughly 5 seconds)
-            if (++bridge_read_count % 50 == 0) {
-                std::cout << "[Main] Sensor update: temp=" << bridge_data.temperature
-                          << "°C, pos=(" << bridge_data.position_x << "," << bridge_data.position_y << ")" << std::endl;
+            // Log sensor updates (every 100 readings to reduce noise)
+            if (++bridge_read_count % 100 == 0) {
+                LOG_DEBUG(MAIN) << "event" << "sensor_update"
+                                << "temp" << bridge_data.temperature
+                                << "pos_x" << bridge_data.position_x
+                                << "pos_y" << bridge_data.position_y;
             }
         }
 
@@ -447,7 +457,7 @@ int main() {
     }
 
     // Graceful shutdown
-    std::cout << "\n\n[Main] Shutting down tasks..." << std::endl;
+    LOG_INFO(MAIN) << "event" << "shutdown_start";
 
     local_interface.stop();
     data_collector.stop();
@@ -458,9 +468,10 @@ int main() {
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "System shutdown complete." << std::endl;
-    std::cout << "Stage 1 demonstration finished." << std::endl;
     std::cout << "Check logs/ directory for event logs." << std::endl;
     std::cout << "========================================" << std::endl;
+
+    LOG_INFO(MAIN) << "event" << "shutdown_complete";
 
     return 0;
 }

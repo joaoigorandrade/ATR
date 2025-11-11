@@ -1,5 +1,5 @@
 #include "fault_monitoring.h"
-#include <iostream>
+#include "logger.h"
 #include <chrono>
 
 FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms)
@@ -8,7 +8,7 @@ FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms)
       running_(false),
       current_fault_(FaultType::NONE) {
 
-    std::cout << "[Fault Monitoring] Initialized (period: " << period_ms_ << "ms)" << std::endl;
+    LOG_INFO(FM) << "event" << "init" << "period_ms" << period_ms_;
 }
 
 FaultMonitoring::~FaultMonitoring() {
@@ -23,7 +23,7 @@ void FaultMonitoring::start() {
     running_ = true;
     task_thread_ = std::thread(&FaultMonitoring::task_loop, this);
 
-    std::cout << "[Fault Monitoring] Task started" << std::endl;
+    LOG_INFO(FM) << "event" << "start";
 }
 
 void FaultMonitoring::stop() {
@@ -37,7 +37,7 @@ void FaultMonitoring::stop() {
         task_thread_.join();
     }
 
-    std::cout << "[Fault Monitoring] Task stopped" << std::endl;
+    LOG_INFO(FM) << "event" << "stop";
 }
 
 void FaultMonitoring::register_fault_callback(FaultCallback callback) {
@@ -107,26 +107,37 @@ FaultType FaultMonitoring::check_for_faults(const SensorData& data) {
 }
 
 void FaultMonitoring::notify_fault_event(FaultType fault_type, const SensorData& data) {
-    // Log fault to console
-    const char* fault_str = "UNKNOWN";
+    // Log fault event with structured data
+    const char* fault_code = "UNK";
+    Logger::Level log_level = Logger::Level::WARN;
+
     switch (fault_type) {
         case FaultType::TEMPERATURE_ALERT:
-            fault_str = "TEMPERATURE ALERT (>95°C)";
+            fault_code = "TEMP_WRN";
+            log_level = Logger::Level::WARN;
             break;
         case FaultType::TEMPERATURE_CRITICAL:
-            fault_str = "TEMPERATURE CRITICAL (>120°C)";
+            fault_code = "TEMP_CRT";
+            log_level = Logger::Level::CRIT;
             break;
         case FaultType::ELECTRICAL:
-            fault_str = "ELECTRICAL FAULT";
+            fault_code = "ELEC";
+            log_level = Logger::Level::CRIT;
             break;
         case FaultType::HYDRAULIC:
-            fault_str = "HYDRAULIC FAULT";
+            fault_code = "HYDR";
+            log_level = Logger::Level::CRIT;
             break;
         default:
             break;
     }
 
-    std::cout << "[Fault Monitoring] *** FAULT DETECTED: " << fault_str << " ***" << std::endl;
+    Logger::log(log_level, Logger::Module::FM)
+        << "event" << "fault"
+        << "type" << fault_code
+        << "temp" << data.temperature
+        << "pos_x" << data.position_x
+        << "pos_y" << data.position_y;
 
     // Notify all registered callbacks
     std::lock_guard<std::mutex> lock(callback_mutex_);

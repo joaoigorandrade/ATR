@@ -1,5 +1,5 @@
 #include "route_planning.h"
-#include <iostream>
+#include "logger.h"
 #include <cmath>
 
 RoutePlanning::RoutePlanning() {
@@ -9,7 +9,7 @@ RoutePlanning::RoutePlanning() {
     setpoint_.target_speed = 0;
     setpoint_.target_angle = 0;
 
-    std::cout << "[Route Planning] Initialized" << std::endl;
+    LOG_INFO(RP) << "event" << "init";
 }
 
 void RoutePlanning::set_target_waypoint(int x, int y, int speed) {
@@ -19,8 +19,7 @@ void RoutePlanning::set_target_waypoint(int x, int y, int speed) {
     setpoint_.target_position_y = y;
     setpoint_.target_speed = speed;
 
-    std::cout << "[Route Planning] New waypoint: (" << x << ", " << y
-              << "), speed=" << speed << "%" << std::endl;
+    LOG_INFO(RP) << "event" << "waypoint" << "x" << x << "y" << y << "speed" << speed;
 }
 
 NavigationSetpoint RoutePlanning::get_setpoint() const {
