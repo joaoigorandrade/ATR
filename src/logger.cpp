@@ -2,13 +2,10 @@
 #include <cstdlib>
 
 namespace Logger {
-
-// Global state
 static Level g_min_level = Level::INFO;
 static std::mutex g_log_mutex;
 
 void init(Level min_level) {
-    // Check environment variable for log level override
     const char* env_level = std::getenv("LOG_LEVEL");
     if (env_level) {
         std::string level_str(env_level);
@@ -70,14 +67,11 @@ LogStream::LogStream(Level level, Module module)
       module_(module),
       should_log_(level >= get_level()),
       expect_key_(true),
-      first_pair_(true) {
-    // Don't build anything if we won't log it
-}
+      first_pair_(true) { }
 
 LogStream::~LogStream() {
     if (!should_log_) return;
 
-    // Output the complete log line
     std::lock_guard<std::mutex> lock(g_log_mutex);
     std::cout << timestamp_ms() << "|"
               << level_str(level_) << "|"
@@ -89,5 +83,4 @@ LogStream::~LogStream() {
 LogStream log(Level level, Module module) {
     return LogStream(level, module);
 }
-
-} // namespace Logger
+}

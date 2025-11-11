@@ -9,12 +9,9 @@ DataCollector::DataCollector(CircularBuffer& buffer, int truck_id, int log_perio
       truck_id_(truck_id),
       log_period_ms_(log_period_ms),
       running_(false) {
-
-    // Initialize state
     current_state_.fault = false;
     current_state_.automatic = false;
 
-    // Generate log filename with truck ID
     std::ostringstream filename;
     filename << "logs/truck_" << truck_id_ << "_log.csv";
     log_filename_ = filename.str();
@@ -67,7 +64,6 @@ void DataCollector::log_event(const EventLog& event) {
     std::lock_guard<std::mutex> lock(log_mutex_);
 
     if (log_file_.is_open()) {
-        // Write CSV line: timestamp, truck_id, state, pos_x, pos_y, description
         log_file_ << event.timestamp << ","
                   << event.truck_id << ","
                   << event.state << ","
@@ -94,17 +90,12 @@ void DataCollector::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
-        // Peek at latest sensor data
         SensorData sensor_data = buffer_.peek_latest();
-
-        // Get current state
         TruckState state;
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
             state = current_state_;
         }
-
-        // Build state string
         std::ostringstream state_str;
         if (state.fault) {
             state_str << "FAULT";
@@ -113,14 +104,10 @@ void DataCollector::task_loop() {
         } else {
             state_str << "MANUAL";
         }
-
-        // Log periodic status
         log_event(state_str.str(),
                  sensor_data.position_x,
                  sensor_data.position_y,
                  "Periodic status update");
-
-        // Wait until next execution time
         next_execution += std::chrono::milliseconds(log_period_ms_);
         std::this_thread::sleep_until(next_execution);
     }
@@ -138,7 +125,6 @@ void DataCollector::open_log_file() {
     log_file_.open(log_filename_, std::ios::out | std::ios::app);
 
     if (log_file_.is_open()) {
-        // Write CSV header if file is new/empty
         log_file_.seekp(0, std::ios::end);
         if (log_file_.tellp() == 0) {
             log_file_ << "Timestamp,TruckID,State,PositionX,PositionY,Description" << std::endl;

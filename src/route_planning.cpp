@@ -3,7 +3,7 @@
 #include <cmath>
 
 RoutePlanning::RoutePlanning() {
-    // Initialize with origin as default target
+
     setpoint_.target_position_x = 0;
     setpoint_.target_position_y = 0;
     setpoint_.target_speed = 0;
@@ -33,8 +33,6 @@ int RoutePlanning::calculate_target_angle(int current_x, int current_y) const {
     int dx = setpoint_.target_position_x - current_x;
     int dy = setpoint_.target_position_y - current_y;
 
-    // Calculate angle in radians, then convert to degrees
-    // atan2 returns angle in range [-π, π]
     double angle_rad = std::atan2(dy, dx);
     int angle_deg = static_cast<int>(angle_rad * 180.0 / M_PI);
 

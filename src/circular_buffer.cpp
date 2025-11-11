@@ -4,88 +4,55 @@
 
 CircularBuffer::CircularBuffer()
     : read_index_(0), write_index_(0), count_(0) {
-    // Initialize buffer with zeros
     std::memset(buffer_, 0, sizeof(buffer_));
 }
 
-CircularBuffer::~CircularBuffer() {
-    // Condition variables and mutex are automatically destroyed
-}
+CircularBuffer::~CircularBuffer() { }
 
 void CircularBuffer::write(const SensorData& data) {
-    // Lock mutex for critical section
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Overwriting behavior for real-time control systems:
-    // If buffer is full, overwrite the oldest data instead of blocking.
-    // This ensures the producer never blocks, maintaining real-time constraints.
-    // Fresh data is more valuable than old data in control applications.
-
     if (count_ == BUFFER_SIZE) {
-        // Buffer is full - advance read index to discard oldest data
         read_index_ = (read_index_ + 1) % BUFFER_SIZE;
-        count_--;  // Will be incremented back below
+        count_--;
 
-        // Log overwrite events (important for debugging data loss)
         static int overwrite_count = 0;
         if (++overwrite_count % 100 == 0) {
             LOG_WARN(CB) << "event" << "overwrite" << "count" << overwrite_count;
         }
     }
 
-    // Critical section: write data to buffer
     buffer_[write_index_] = data;
-
-    // Advance write index in circular manner
     write_index_ = (write_index_ + 1) % BUFFER_SIZE;
-
-    // Increment count of elements in buffer
     count_++;
 
-    // Mutex is automatically released when lock goes out of scope
     lock.unlock();
 
-    // Notify one waiting consumer that data is available
     not_empty_.notify_one();
 }
 
 SensorData CircularBuffer::read() {
-    // Lock mutex for critical section
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // Wait while buffer is empty
     not_empty_.wait(lock, [this]() { return count_ > 0; });
 
-    // Critical section: read data from buffer
     SensorData data = buffer_[read_index_];
-
-    // Advance read index in circular manner
     read_index_ = (read_index_ + 1) % BUFFER_SIZE;
-
-    // Decrement count of elements in buffer
     count_--;
 
-    // Release lock
+
     lock.unlock();
-
-    // Notify one waiting producer that space is available
     not_full_.notify_one();
-
     return data;
 }
 
 SensorData CircularBuffer::peek_latest() {
-    // Non-blocking read of most recent data
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (count_ == 0) {
-        // Return zeroed data if buffer is empty
         SensorData empty_data = {};
         return empty_data;
     }
-
-    // Calculate the index of the most recently written data
-    // write_index_ points to next write position, so subtract 1 (with wrap)
     size_t latest_index = (write_index_ == 0) ? (BUFFER_SIZE - 1) : (write_index_ - 1);
 
     return buffer_[latest_index];

@@ -15,7 +15,8 @@ cmake_install.cmake
 Makefile
 
 # Log files
-logs/
+logs/*.csv
+logs/.*
 bridge/
 
 # Python
