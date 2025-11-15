@@ -67,23 +67,23 @@ cd ..
 ### Stage 2 (Full System with GUIs)
 
 ```bash
-# Setup (first time only)
-./setup_stage2.sh
+# Setup, build and run all components
+./setup_and_run_stage2.sh
 
-# Run all components
-./run_stage2.sh
-
-# Or manually in 4 terminals:
+# Or manually in 5 terminals:
 # Terminal 1:
 mosquitto
 
 # Terminal 2:
-python3 python_gui/mine_simulation.py
+python3 python_gui/mqtt_bridge.py
 
 # Terminal 3:
-python3 python_gui/mine_management.py
+python3 python_gui/mine_simulation.py
 
 # Terminal 4:
+python3 python_gui/mine_management.py
+
+# Terminal 5:
 ./build/truck_control
 ```
 

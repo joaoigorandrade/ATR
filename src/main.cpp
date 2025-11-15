@@ -74,8 +74,17 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
             return false;
         }
 
-
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find("sensors") != std::string::npos) {
+
+                std::ifstream file(entry.path());
+                if (!file.is_open()) continue;
+
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string json_content = buffer.str();
+                file.close();
 
                 size_t payload_pos = json_content.find("\"payload\"");
                 std::string payload_content = json_content;
@@ -86,12 +95,12 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
                     }
                 }
 
-
                 data.position_x = extract_json_int(payload_content, "position_x");
                 data.position_y = extract_json_int(payload_content, "position_y");
                 data.angle_x = extract_json_int(payload_content, "angle_x");
                 data.temperature = extract_json_int(payload_content, "temperature");
                 data.fault_electrical = extract_json_bool(payload_content, "fault_electrical");
+                data.fault_hydraulic = extract_json_bool(payload_content, "fault_hydraulic");
 
                 fs::remove(entry.path());
 
@@ -114,9 +123,17 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
             return false;
         }
 
-
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find("commands") != std::string::npos) {
 
+                std::ifstream file(entry.path());
+                if (!file.is_open()) continue;
+
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                std::string json_content = buffer.str();
+                file.close();
 
                 size_t payload_pos = json_content.find("\"payload\"");
                 std::string payload_content = json_content;
@@ -127,9 +144,6 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                     }
                 }
 
-
-
-
                 bool has_auto_mode = payload_content.find("\"auto_mode\"") != std::string::npos;
                 bool has_manual_mode = payload_content.find("\"manual_mode\"") != std::string::npos;
                 bool has_rearm = payload_content.find("\"rearm\"") != std::string::npos;
@@ -139,12 +153,11 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                     continue;
                 }
 
-
                 cmd.auto_mode = extract_json_bool(payload_content, "auto_mode");
                 cmd.manual_mode = extract_json_bool(payload_content, "manual_mode");
-                
-                                fs::remove(entry.path());
+                cmd.rearm = extract_json_bool(payload_content, "rearm");
 
+                fs::remove(entry.path());
 
                 if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
                     LOG_INFO(MAIN) << "event" << "cmd_recv"
@@ -172,7 +185,6 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
             return false;
         }
 
-
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
                 entry.path().filename().string().find("setpoint") != std::string::npos) {
@@ -185,13 +197,14 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
                 std::string json_content = buffer.str();
                 file.close();
 
-
+                size_t payload_pos = json_content.find("\"payload\"");
+                std::string payload_content = json_content;
+                if (payload_pos != std::string::npos) {
                     size_t payload_start = json_content.find("{", payload_pos);
                     if (payload_start != std::string::npos) {
                         payload_content = json_content.substr(payload_start);
                     }
                 }
-
 
                 setpoint.target_position_x = extract_json_int(payload_content, "target_x");
                 setpoint.target_position_y = extract_json_int(payload_content, "target_y");
@@ -244,13 +257,17 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
                     << "}";
 
 
+
         std::ofstream file(filename.str());
         if (file.is_open()) {
             file << json_content.str();
             file.close();
         }
 
-
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
+}
 
 int main() {
 

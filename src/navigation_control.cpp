@@ -157,19 +157,29 @@ int NavigationControl::speed_controller(int current_x, int current_y,
     int dy = target_y - current_y;
     double distance = std::sqrt(dx*dx + dy*dy);
 
-
     int control_output;
 
-    if (distance < DECELERATION_DISTANCE) {
-        double reduced_gain = KP_SPEED * (distance / DECELERATION_DISTANCE);
-        control_output = static_cast<int>(reduced_gain * distance);
+    if (distance < 2.0) {
+        // Very close to target - stop completely
+        control_output = 0;
+    } else if (distance < 12.0) {
+        // Extended close zone - aggressive deceleration
+        double deceleration_factor = distance / 12.0;
+        control_output = static_cast<int>(10 * deceleration_factor);
+    } else if (distance < DECELERATION_DISTANCE) {
+        // Within deceleration zone - reduce acceleration aggressively
+        double deceleration_factor = distance / DECELERATION_DISTANCE;
+        // Use even more aggressive curve for deceleration
+        deceleration_factor = std::pow(deceleration_factor, 1.5); // More aggressive than sqrt
+        control_output = static_cast<int>(MAX_ACCELERATION * deceleration_factor * 0.4);
     } else {
-        control_output = static_cast<int>(KP_SPEED * distance);
+        // Far from target - constant acceleration
+        control_output = MAX_ACCELERATION;
     }
 
-
+    // Clamp output to reasonable range
     if (control_output > 100) control_output = 100;
-    if (control_output < -100) control_output = -100;
+    if (control_output < 0) control_output = 0; // No reverse acceleration
 
     return control_output;
 }
@@ -185,8 +195,8 @@ int NavigationControl::angle_controller(int current_angle, int target_angle) {
 
     int control_output = static_cast<int>(KP_ANGLE * error);
 
-    if (control_output > 30) control_output = 30;
-    if (control_output < -30) control_output = -30;
+    if (control_output > 80) control_output = 80;
+    if (control_output < -80) control_output = -80;
 
     return control_output;
 }
