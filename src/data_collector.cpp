@@ -1,5 +1,6 @@
 #include "data_collector.h"
 #include "logger.h"
+#include "watchdog.h"
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -108,6 +109,12 @@ void DataCollector::task_loop() {
                  sensor_data.position_x,
                  sensor_data.position_y,
                  "Periodic status update");
+
+        // Report heartbeat to watchdog
+        if (Watchdog::get_instance()) {
+            Watchdog::get_instance()->heartbeat("DataCollector");
+        }
+
         next_execution += std::chrono::milliseconds(log_period_ms_);
         std::this_thread::sleep_until(next_execution);
     }

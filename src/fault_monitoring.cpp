@@ -1,6 +1,9 @@
 #include "fault_monitoring.h"
 #include "logger.h"
+#include "watchdog.h"
 #include <chrono>
+#include <pthread.h>
+#include <cstring>
 
 FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms)
     : buffer_(buffer),
@@ -23,7 +26,19 @@ void FaultMonitoring::start() {
     running_ = true;
     task_thread_ = std::thread(&FaultMonitoring::task_loop, this);
 
-    LOG_INFO(FM) << "event" << "start";
+    // Set real-time scheduling priority (highest priority for fault monitoring)
+    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
+    pthread_t native_handle = task_thread_.native_handle();
+    struct sched_param param;
+    param.sched_priority = 90; // Priority range: 1-99 (90 = highest for this system)
+
+    int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
+    if (result == 0) {
+        LOG_INFO(FM) << "event" << "start" << "rt_priority" << 90 << "sched" << "FIFO";
+    } else {
+        // Failed to set real-time priority (might need sudo/capabilities)
+        LOG_WARN(FM) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
+    }
 }
 
 void FaultMonitoring::stop() {
@@ -66,6 +81,12 @@ void FaultMonitoring::task_loop() {
                 }
             }
         }
+
+        // Report heartbeat to watchdog
+        if (Watchdog::get_instance()) {
+            Watchdog::get_instance()->heartbeat("FaultMonitoring");
+        }
+
         next_execution += std::chrono::milliseconds(period_ms_);
         std::this_thread::sleep_until(next_execution);
     }

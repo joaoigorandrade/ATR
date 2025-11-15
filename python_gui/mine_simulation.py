@@ -15,12 +15,13 @@ Real-Time Automation Concepts:
 - MQTT pub/sub communication
 """
 
-import pygame
+import json
 import math
 import random
-import json
 import sys
 from datetime import datetime
+
+import pygame
 
 try:
     import paho.mqtt.client as mqtt
@@ -52,6 +53,7 @@ MQTT_PORT = 1883
 MQTT_TOPIC_SENSORS = "truck/{}/sensors"
 MQTT_TOPIC_COMMANDS = "truck/{}/commands"
 
+
 class Truck:
     """Represents a simulated mining truck"""
 
@@ -59,59 +61,50 @@ class Truck:
         self.id = truck_id
         self.x = float(x)
         self.y = float(y)
-        self.angle = 45.0  # degrees, 0 = East
+        self.angle = 0.0
         self.velocity = 0.0
-        self.acceleration = 0  # -100 to 100
-        self.steering = 0  # -180 to 180
+        self.acceleration = 0
+        self.steering = 0
 
-        # Sensor data
-        self.temperature = 75.0  # °C
+        self.temperature = 75.0
         self.fault_electrical = False
         self.fault_hydraulic = False
 
-        # Physics parameters
-        self.max_speed = 5.0  # pixels per frame
+        self.max_speed = 5.0
         self.accel_rate = 0.3
         self.friction = 0.95
 
-        # Visual
         self.width = 40
         self.height = 60
         self.color = BLUE
 
     def update_physics(self, dt=1.0):
         """Update truck physics based on acceleration and steering"""
-        # Update velocity based on acceleration
         if self.acceleration > 0:
             self.velocity += self.accel_rate * (self.acceleration / 100.0)
         elif self.acceleration < 0:
             self.velocity += self.accel_rate * (self.acceleration / 100.0)
         else:
-            self.velocity *= self.friction  # Apply friction
+            self.velocity *= self.friction
 
-        # Clamp velocity
         self.velocity = max(-self.max_speed, min(self.max_speed, self.velocity))
 
-        # Update angle based on steering (only if moving)
         if abs(self.velocity) > 0.1:
             turn_rate = 2.0 * (self.steering / 180.0)
             self.angle += turn_rate
             self.angle %= 360
 
-        # Update position based on velocity and angle
         rad = math.radians(self.angle)
         self.x += self.velocity * math.cos(rad)
         self.y += self.velocity * math.sin(rad)
 
-        # Keep within bounds
         self.x = max(0, min(MAP_WIDTH, self.x))
         self.y = max(0, min(MAP_HEIGHT, self.y))
 
-        # Simulate temperature changes
         if abs(self.velocity) > 2.0:
-            self.temperature += 0.1  # Heat up when moving
+            self.temperature += 0.1
         else:
-            self.temperature -= 0.05  # Cool down when idle
+            self.temperature -= 0.05
 
         self.temperature = max(20, min(150, self.temperature))
 
@@ -125,38 +118,34 @@ class Truck:
             "truck_id": self.id,
             "position_x": int(self.x + random.uniform(-noise_pos, noise_pos)),
             "position_y": int(self.y + random.uniform(-noise_pos, noise_pos)),
-            "angle_x": int(self.angle + random.uniform(-noise_angle, noise_angle)) % 360,
-            "temperature": int(self.temperature + random.uniform(-noise_temp, noise_temp)),
+            "angle_x": int(self.angle + random.uniform(-noise_angle, noise_angle))
+            % 360,
+            "temperature": int(
+                self.temperature + random.uniform(-noise_temp, noise_temp)
+            ),
             "fault_electrical": self.fault_electrical,
             "fault_hydraulic": self.fault_hydraulic,
-            "timestamp": int(datetime.now().timestamp() * 1000)
+            "timestamp": int(datetime.now().timestamp() * 1000),
         }
 
     def draw(self, screen):
         """Draw the truck on the screen"""
-        # Draw truck as a rotated rectangle
         rad = math.radians(self.angle)
-
-        # Calculate corner points
         cos_a = math.cos(rad)
         sin_a = math.sin(rad)
-
-        # Truck rectangle points (before rotation)
         points = [
-            (-self.width/2, -self.height/2),
-            (self.width/2, -self.height/2),
-            (self.width/2, self.height/2),
-            (-self.width/2, self.height/2)
+            (-self.width / 2, -self.height / 2),
+            (self.width / 2, -self.height / 2),
+            (self.width / 2, self.height / 2),
+            (-self.width / 2, self.height / 2),
         ]
 
-        # Rotate and translate points
         rotated_points = []
         for px, py in points:
             rx = px * cos_a - py * sin_a
             ry = px * sin_a + py * cos_a
             rotated_points.append((self.x + rx, self.y + ry))
 
-        # Draw truck body
         color = self.color
         if self.fault_electrical or self.fault_hydraulic:
             color = RED
@@ -168,16 +157,15 @@ class Truck:
         pygame.draw.polygon(screen, color, rotated_points)
         pygame.draw.polygon(screen, WHITE, rotated_points, 2)
 
-        # Draw direction indicator
         dir_len = 30
         end_x = self.x + dir_len * cos_a
         end_y = self.y + dir_len * sin_a
         pygame.draw.line(screen, YELLOW, (self.x, self.y), (end_x, end_y), 3)
 
-        # Draw ID
         font = pygame.font.Font(None, 24)
         text = font.render(f"T{self.id}", True, WHITE)
-        screen.blit(text, (self.x - 10, self.y - self.height/2 - 20))
+        screen.blit(text, (self.x - 10, self.y - self.height / 2 - 20))
+
 
 class MineSimulation:
     """Main simulation class"""
@@ -190,12 +178,8 @@ class MineSimulation:
         self.font = pygame.font.Font(None, 24)
         self.small_font = pygame.font.Font(None, 20)
 
-        # Create trucks
-        self.trucks = {
-            1: Truck(1, 100, 200)
-        }
+        self.trucks = {1: Truck(1, 100, 200)}
 
-        # MQTT setup
         self.mqtt_client = None
         self.mqtt_connected = False
         if mqtt:
@@ -224,7 +208,6 @@ class MineSimulation:
             self.mqtt_connected = True
             print("[MQTT] Connected successfully")
 
-            # Subscribe to command topics AFTER connection is established
             for truck_id in self.trucks.keys():
                 topic = MQTT_TOPIC_COMMANDS.format(truck_id)
                 client.subscribe(topic)
@@ -235,20 +218,17 @@ class MineSimulation:
     def on_mqtt_message(self, client, userdata, msg):
         """MQTT message callback for receiving commands"""
         try:
-            # Parse truck ID from topic
-            topic_parts = msg.topic.split('/')
+            topic_parts = msg.topic.split("/")
             truck_id = int(topic_parts[1])
 
             if truck_id in self.trucks:
-                # Parse command JSON
                 command = json.loads(msg.payload.decode())
                 truck = self.trucks[truck_id]
 
-                # Update truck actuators
-                if 'acceleration' in command:
-                    truck.acceleration = command['acceleration']
-                if 'steering' in command:
-                    truck.steering = command['steering']
+                if "acceleration" in command:
+                    truck.acceleration = command["acceleration"]
+                if "steering" in command:
+                    truck.steering = command["steering"]
 
         except Exception as e:
             print(f"[MQTT] Error processing message: {e}")
@@ -276,15 +256,18 @@ class MineSimulation:
                 elif event.key == pygame.K_SPACE:
                     self.paused = not self.paused
                 elif event.key == pygame.K_e:
-                    # Inject electrical fault
-                    self.trucks[1].fault_electrical = not self.trucks[1].fault_electrical
-                    print(f"[Simulation] Electrical fault: {self.trucks[1].fault_electrical}")
+                    self.trucks[1].fault_electrical = not self.trucks[
+                        1
+                    ].fault_electrical
+                    print(
+                        f"[Simulation] Electrical fault: {self.trucks[1].fault_electrical}"
+                    )
                 elif event.key == pygame.K_h:
-                    # Inject hydraulic fault
                     self.trucks[1].fault_hydraulic = not self.trucks[1].fault_hydraulic
-                    print(f"[Simulation] Hydraulic fault: {self.trucks[1].fault_hydraulic}")
+                    print(
+                        f"[Simulation] Hydraulic fault: {self.trucks[1].fault_hydraulic}"
+                    )
                 elif event.key == pygame.K_t:
-                    # Increase temperature
                     self.trucks[1].temperature += 20
                     print(f"[Simulation] Temperature: {self.trucks[1].temperature}°C")
 
@@ -298,17 +281,14 @@ class MineSimulation:
         """Draw simulation"""
         self.screen.fill(DARK_GRAY)
 
-        # Draw grid
         for x in range(0, MAP_WIDTH, 100):
             pygame.draw.line(self.screen, GRAY, (x, 0), (x, MAP_HEIGHT), 1)
         for y in range(0, MAP_HEIGHT, 100):
             pygame.draw.line(self.screen, GRAY, (0, y), (MAP_WIDTH, y), 1)
 
-        # Draw trucks
         for truck in self.trucks.values():
             truck.draw(self.screen)
 
-        # Draw UI
         self.draw_ui()
 
         pygame.display.flip()
@@ -317,26 +297,22 @@ class MineSimulation:
         """Draw user interface"""
         y_offset = 10
 
-        # Title
         title = self.font.render("MINE SIMULATION - Stage 2", True, WHITE)
         self.screen.blit(title, (10, y_offset))
         y_offset += 30
 
-        # Status
         status_text = "PAUSED" if self.paused else "RUNNING"
         status_color = YELLOW if self.paused else GREEN
         status = self.font.render(f"Status: {status_text}", True, status_color)
         self.screen.blit(status, (10, y_offset))
         y_offset += 25
 
-        # MQTT status
         mqtt_text = "Connected" if self.mqtt_connected else "Disconnected"
         mqtt_color = GREEN if self.mqtt_connected else RED
         mqtt_status = self.small_font.render(f"MQTT: {mqtt_text}", True, mqtt_color)
         self.screen.blit(mqtt_status, (10, y_offset))
         y_offset += 25
 
-        # Truck info
         for truck in self.trucks.values():
             y_offset += 10
             info_lines = [
@@ -346,7 +322,7 @@ class MineSimulation:
                 f"  Vel: {truck.velocity:.1f}",
                 f"  Temp: {int(truck.temperature)}°C",
                 f"  Acc: {truck.acceleration}%",
-                f"  Steer: {truck.steering}°"
+                f"  Steer: {truck.steering}°",
             ]
 
             for line in info_lines:
@@ -354,7 +330,6 @@ class MineSimulation:
                 self.screen.blit(text, (10, y_offset))
                 y_offset += 20
 
-        # Controls
         y_offset = WINDOW_HEIGHT - 120
         controls = [
             "Controls:",
@@ -362,7 +337,7 @@ class MineSimulation:
             "E - Toggle Electrical Fault",
             "H - Toggle Hydraulic Fault",
             "T - Increase Temperature",
-            "ESC - Quit"
+            "ESC - Quit",
         ]
 
         for line in controls:
@@ -390,20 +365,19 @@ class MineSimulation:
             self.update()
             self.draw()
 
-            # Publish sensor data every 10 frames (~3 times per second)
             frame_count += 1
             if frame_count % 10 == 0:
                 self.publish_sensor_data()
 
             self.clock.tick(FPS)
 
-        # Cleanup
         if self.mqtt_client:
             self.mqtt_client.loop_stop()
             self.mqtt_client.disconnect()
 
         pygame.quit()
         print("\n[Simulation] Shutdown complete")
+
 
 if __name__ == "__main__":
     sim = MineSimulation()

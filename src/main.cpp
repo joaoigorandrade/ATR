@@ -15,6 +15,7 @@
 #include "route_planning.h"
 #include "data_collector.h"
 #include "local_interface.h"
+#include "watchdog.h"
 #include <sstream>
 #include <map>
 
@@ -301,6 +302,17 @@ int main() {
 
     LOG_DEBUG(MAIN) << "event" << "tasks_created";
 
+    // Create watchdog for fault tolerance monitoring
+    Watchdog watchdog(100);  // Check every 100ms
+    Watchdog::set_instance(&watchdog);  // Set global instance for task access
+    watchdog.register_task("SensorProcessing", 300);   // 3x period (100ms * 3)
+    watchdog.register_task("CommandLogic", 150);       // 3x period (50ms * 3)
+    watchdog.register_task("FaultMonitoring", 300);    // 3x period (100ms * 3)
+    watchdog.register_task("NavigationControl", 150);  // 3x period (50ms * 3)
+    watchdog.register_task("DataCollector", 3000);     // 3x period (1000ms * 3)
+
+    LOG_DEBUG(MAIN) << "event" << "watchdog_configured" << "tasks" << watchdog.get_task_count();
+
 
     LOG_DEBUG(MAIN) << "event" << "configuring";
 
@@ -324,6 +336,7 @@ int main() {
     fault_task.start();
     nav_task.start();
     data_collector.start();
+    watchdog.start();  // Start watchdog monitoring
 
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -397,6 +410,7 @@ int main() {
 
     LOG_INFO(MAIN) << "event" << "shutdown_start";
 
+    watchdog.stop();  // Stop watchdog first
     local_interface.stop();
     data_collector.stop();
     nav_task.stop();

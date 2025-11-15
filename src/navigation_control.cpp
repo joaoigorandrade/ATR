@@ -1,8 +1,11 @@
 #include "navigation_control.h"
 #include "logger.h"
+#include "watchdog.h"
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <pthread.h>
+#include <cstring>
 
 NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms)
     : buffer_(buffer),
@@ -31,7 +34,18 @@ void NavigationControl::start() {
     running_ = true;
     task_thread_ = std::thread(&NavigationControl::task_loop, this);
 
-    LOG_INFO(NC) << "event" << "start";
+    // Set real-time scheduling priority (medium priority for navigation control)
+    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
+    pthread_t native_handle = task_thread_.native_handle();
+    struct sched_param param;
+    param.sched_priority = 70; // Priority: 70 (medium, lower than command logic)
+
+    int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
+    if (result == 0) {
+        LOG_INFO(NC) << "event" << "start" << "rt_priority" << 70 << "sched" << "FIFO";
+    } else {
+        LOG_WARN(NC) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
+    }
 }
 
 void NavigationControl::stop() {
@@ -142,6 +156,11 @@ void NavigationControl::task_loop() {
                 output_.steering = 0;
                 output_.arrived = false;
             }
+        }
+
+        // Report heartbeat to watchdog
+        if (Watchdog::get_instance()) {
+            Watchdog::get_instance()->heartbeat("NavigationControl");
         }
 
 

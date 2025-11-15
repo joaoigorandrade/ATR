@@ -1,6 +1,9 @@
 #include "command_logic.h"
 #include "logger.h"
+#include "watchdog.h"
 #include <chrono>
+#include <pthread.h>
+#include <cstring>
 
 CommandLogic::CommandLogic(CircularBuffer& buffer, int period_ms)
     : buffer_(buffer),
@@ -27,7 +30,18 @@ void CommandLogic::start() {
     running_ = true;
     task_thread_ = std::thread(&CommandLogic::task_loop, this);
 
-    LOG_INFO(CL) << "event" << "start";
+    // Set real-time scheduling priority (high priority for command logic)
+    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
+    pthread_t native_handle = task_thread_.native_handle();
+    struct sched_param param;
+    param.sched_priority = 80; // Priority: 80 (high, but lower than fault monitoring)
+
+    int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
+    if (result == 0) {
+        LOG_INFO(CL) << "event" << "start" << "rt_priority" << 80 << "sched" << "FIFO";
+    } else {
+        LOG_WARN(CL) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
+    }
 }
 
 void CommandLogic::stop() {
@@ -97,6 +111,12 @@ void CommandLogic::task_loop() {
             }
             calculate_actuator_outputs();
         }
+
+        // Report heartbeat to watchdog
+        if (Watchdog::get_instance()) {
+            Watchdog::get_instance()->heartbeat("CommandLogic");
+        }
+
         next_execution += std::chrono::milliseconds(period_ms_);
         std::this_thread::sleep_until(next_execution);
     }

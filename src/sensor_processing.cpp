@@ -1,7 +1,8 @@
 #include "sensor_processing.h"
 #include "logger.h"
-#include <chrono>
-#include <numeric>
+#include "watchdog.h"
+#include <pthread.h>
+#include <cstring>
 
 SensorProcessing::SensorProcessing(CircularBuffer& buffer, size_t filter_order, int period_ms)
     : buffer_(buffer),
@@ -22,8 +23,16 @@ void SensorProcessing::start() {
 
     running_ = true;
     task_thread_ = std::thread(&SensorProcessing::task_loop, this);
+    pthread_t native_handle = task_thread_.native_handle();
+    struct sched_param param;
+    param.sched_priority = 60;
 
-    LOG_INFO(SP) << "event" << "start" << "period_ms" << period_ms_ << "filter_order" << filter_order_;
+    int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
+    if (result == 0) {
+        LOG_INFO(SP) << "event" << "start" << "period_ms" << period_ms_ << "filter_order" << filter_order_ << "rt_priority" << 60 << "sched" << "FIFO";
+    } else {
+        LOG_WARN(SP) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
+    }
 }
 
 void SensorProcessing::stop() {
@@ -88,6 +97,9 @@ void SensorProcessing::task_loop() {
                           << "pos_y" << processed_data.position_y;
         }
 
+        if (Watchdog::get_instance()) {
+            Watchdog::get_instance()->heartbeat("SensorProcessing");
+        }
 
         next_execution += std::chrono::milliseconds(period_ms_);
         std::this_thread::sleep_until(next_execution);
