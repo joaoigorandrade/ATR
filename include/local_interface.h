@@ -3,6 +3,7 @@
 
 #include "circular_buffer.h"
 #include "common_types.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -32,8 +33,9 @@ public:
      *
      * @param buffer Reference to shared circular buffer
      * @param update_period_ms Display update period (default: 1000ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    LocalInterface(CircularBuffer& buffer, int update_period_ms = 1000);
+    LocalInterface(CircularBuffer& buffer, int update_period_ms = 1000, PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Local Interface task
@@ -91,6 +93,8 @@ private:
     ActuatorOutput actuator_output_;        // Current actuator values
     SensorData latest_sensor_data_;         // Latest sensor readings
     size_t buffer_count_;                   // Debug: buffer count
+
+    PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 };
 
 #endif // LOCAL_INTERFACE_H

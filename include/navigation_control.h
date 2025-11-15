@@ -3,6 +3,7 @@
 
 #include "circular_buffer.h"
 #include "common_types.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -33,8 +34,9 @@ public:
      *
      * @param buffer Reference to shared circular buffer
      * @param period_ms Control loop period in milliseconds (default: 50ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    NavigationControl(CircularBuffer& buffer, int period_ms = 50);
+    NavigationControl(CircularBuffer& buffer, int period_ms = 50, PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Navigation Control task
@@ -118,6 +120,8 @@ private:
     TruckState truck_state_;                // Current truck state
     ActuatorOutput output_;                 // Current control outputs
     double previous_distance_;              // Track previous distance for approach detection
+
+    PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 
     // Control gains (tunable parameters)
     static constexpr double KP_SPEED = 0.15;   // Speed controller gain (increased for better navigation)

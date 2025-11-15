@@ -7,11 +7,12 @@
 #include <pthread.h>
 #include <cstring>
 
-NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms)
+NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms, PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
       period_ms_(period_ms),
       running_(false),
-      previous_distance_(std::numeric_limits<double>::max()) {
+      previous_distance_(std::numeric_limits<double>::max()),
+      perf_monitor_(perf_monitor) {
 
     truck_state_.fault = false;
     truck_state_.automatic = false;
@@ -90,6 +91,7 @@ void NavigationControl::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
+        auto start_time = std::chrono::steady_clock::now();
 
         SensorData sensor_data = buffer_.peek_latest();
 
@@ -163,6 +165,10 @@ void NavigationControl::task_loop() {
             Watchdog::get_instance()->heartbeat("NavigationControl");
         }
 
+        // Record execution time
+        if (perf_monitor_) {
+            perf_monitor_->end_measurement("NavigationControl", start_time);
+        }
 
         next_execution += std::chrono::milliseconds(period_ms_);
         std::this_thread::sleep_until(next_execution);

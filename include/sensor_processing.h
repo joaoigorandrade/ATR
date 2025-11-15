@@ -2,6 +2,7 @@
 #define SENSOR_PROCESSING_H
 
 #include "circular_buffer.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <deque>
@@ -46,8 +47,10 @@ public:
      * @param buffer Reference to shared circular buffer
      * @param filter_order Order M of moving average filter (default: 5)
      * @param period_ms Task execution period in milliseconds (default: 100ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    SensorProcessing(CircularBuffer& buffer, size_t filter_order = 5, int period_ms = 100);
+    SensorProcessing(CircularBuffer& buffer, size_t filter_order = 5, int period_ms = 100,
+                     PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Sensor Processing task and stop thread
@@ -107,6 +110,8 @@ private:
 
     std::atomic<bool> running_;         // Flag to control task execution
     std::thread task_thread_;           // Thread executing the task
+
+    PerformanceMonitor* perf_monitor_;  // Performance monitoring (optional)
 
     // Moving average history for each filtered sensor
     std::deque<int> position_x_history_;

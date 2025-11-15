@@ -5,11 +5,12 @@
 #include <sstream>
 #include <iomanip>
 
-DataCollector::DataCollector(CircularBuffer& buffer, int truck_id, int log_period_ms)
+DataCollector::DataCollector(CircularBuffer& buffer, int truck_id, int log_period_ms, PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
       truck_id_(truck_id),
       log_period_ms_(log_period_ms),
-      running_(false) {
+      running_(false),
+      perf_monitor_(perf_monitor) {
     current_state_.fault = false;
     current_state_.automatic = false;
 
@@ -91,6 +92,8 @@ void DataCollector::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
         SensorData sensor_data = buffer_.peek_latest();
         TruckState state;
         {
@@ -113,6 +116,11 @@ void DataCollector::task_loop() {
         // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("DataCollector");
+        }
+
+        // Record execution time
+        if (perf_monitor_) {
+            perf_monitor_->end_measurement("DataCollector", start_time);
         }
 
         next_execution += std::chrono::milliseconds(log_period_ms_);

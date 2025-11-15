@@ -3,12 +3,15 @@
 #include "watchdog.h"
 #include <pthread.h>
 #include <cstring>
+#include <numeric>
 
-SensorProcessing::SensorProcessing(CircularBuffer& buffer, size_t filter_order, int period_ms)
+SensorProcessing::SensorProcessing(CircularBuffer& buffer, size_t filter_order, int period_ms,
+                                   PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
       filter_order_(filter_order),
       period_ms_(period_ms),
       running_(false),
+      perf_monitor_(perf_monitor),
       current_raw_data_{0, 0, 0, 20, false, false} {
 }
 
@@ -58,6 +61,8 @@ void SensorProcessing::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
+        // Measure execution time using RAII helper
+        auto start_time = std::chrono::steady_clock::now();
 
         RawSensorData raw_data;
         {
@@ -99,6 +104,11 @@ void SensorProcessing::task_loop() {
 
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("SensorProcessing");
+        }
+
+        // Record execution time
+        if (perf_monitor_) {
+            perf_monitor_->end_measurement("SensorProcessing", start_time);
         }
 
         next_execution += std::chrono::milliseconds(period_ms_);

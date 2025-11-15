@@ -5,11 +5,12 @@
 #include <pthread.h>
 #include <cstring>
 
-FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms)
+FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms, PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
       period_ms_(period_ms),
       running_(false),
-      current_fault_(FaultType::NONE) {
+      current_fault_(FaultType::NONE),
+      perf_monitor_(perf_monitor) {
 
     LOG_INFO(FM) << "event" << "init" << "period_ms" << period_ms_;
 }
@@ -69,6 +70,8 @@ void FaultMonitoring::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
         SensorData sensor_data = buffer_.peek_latest();
         FaultType fault = check_for_faults(sensor_data);
 
@@ -85,6 +88,11 @@ void FaultMonitoring::task_loop() {
         // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("FaultMonitoring");
+        }
+
+        // Record execution time
+        if (perf_monitor_) {
+            perf_monitor_->end_measurement("FaultMonitoring", start_time);
         }
 
         next_execution += std::chrono::milliseconds(period_ms_);

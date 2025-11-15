@@ -51,10 +51,18 @@ class TruckData:
         self.temperature = 0
         self.fault_electrical = False
         self.fault_hydraulic = False
-        self.mode = "UNKNOWN"
+        self.mode = "MANUAL"  # Default to MANUAL instead of UNKNOWN
         self.fault_state = False
         self.last_update = None
+        self.last_sensor_update = None
+        self.last_command_update = None
         self.history = deque(maxlen=50)  # Position history for trail
+        self.dirty = True  # Track if data changed since last render
+
+        # Track actuator outputs and arrival status
+        self.acceleration = 0
+        self.steering = 0
+        self.arrived = False
 
     def update_sensors(self, data):
         """Update from sensor data"""
@@ -65,15 +73,39 @@ class TruckData:
         self.fault_electrical = data.get('fault_electrical', False)
         self.fault_hydraulic = data.get('fault_hydraulic', False)
         self.last_update = datetime.now()
+        self.last_sensor_update = datetime.now()
 
         # Add to history
         self.history.append((self.position_x, self.position_y))
+        self.dirty = True  # Mark as changed
 
     def update_state(self, data):
         """Update from state data"""
         self.mode = "AUTO" if data.get('automatic', False) else "MANUAL"
         self.fault_state = data.get('fault', False)
         self.last_update = datetime.now()
+        self.dirty = True  # Mark as changed
+
+    def update_commands(self, data):
+        """Update from command/actuator data"""
+        # Track actuator outputs
+        if 'acceleration' in data:
+            self.acceleration = data.get('acceleration', 0)
+        if 'steering' in data:
+            self.steering = data.get('steering', 0)
+        if 'arrived' in data:
+            self.arrived = data.get('arrived', False)
+
+        # Infer mode from actuator activity if state messages aren't received
+        # If we're getting non-zero commands, we're likely in AUTO mode
+        if self.acceleration != 0 or self.steering != 0:
+            if self.mode == "MANUAL":  # Only update if not already set by state message
+                recent_state = self.last_update and (datetime.now() - self.last_update).total_seconds() < 2
+                if not recent_state:
+                    self.mode = "AUTO"
+
+        self.last_command_update = datetime.now()
+        self.dirty = True
 
     def has_any_fault(self):
         """Check if truck has any fault"""
@@ -91,6 +123,7 @@ class MineManagementGUI:
         self.trucks = {}  # truck_id -> TruckData
         self.selected_truck = None
         self.target_waypoint = None
+        self.waypoint_dirty = False  # Track waypoint changes
 
         # MQTT
         self.mqtt_client = None
@@ -222,10 +255,11 @@ class MineManagementGUI:
             print("[MQTT] Connected successfully")
             self.status_label.config(text="MQTT: Connected", foreground="green")
 
-            # Subscribe to all truck topics
+            # Subscribe to all truck topics (sensors, state, and commands)
             client.subscribe(MQTT_TOPIC_SENSORS)
             client.subscribe(MQTT_TOPIC_STATE)
-            print("[MQTT] Subscribed to truck topics")
+            client.subscribe(MQTT_TOPIC_COMMANDS.format("+"))  # Subscribe to all truck commands
+            print("[MQTT] Subscribed to truck topics (sensors, state, commands)")
         else:
             print(f"[MQTT] Connection failed with code {rc}")
             self.status_label.config(text=f"MQTT: Failed (code {rc})", foreground="red")
@@ -249,6 +283,9 @@ class MineManagementGUI:
                 self.trucks[truck_id].update_sensors(data)
             elif 'state' in msg.topic:
                 self.trucks[truck_id].update_state(data)
+            elif 'commands' in msg.topic:
+                # This receives actuator commands (acceleration, steering, arrived)
+                self.trucks[truck_id].update_commands(data)
 
         except Exception as e:
             print(f"[MQTT] Error processing message: {e}")
@@ -284,6 +321,7 @@ class MineManagementGUI:
         self.waypoint_y.insert(0, str(map_y))
 
         self.target_waypoint = (map_x, map_y)
+        self.waypoint_dirty = True
 
     def send_waypoint(self):
         """Send waypoint to selected truck"""
@@ -305,6 +343,7 @@ class MineManagementGUI:
             self.mqtt_client.publish(topic, payload)
 
             self.target_waypoint = (x, y)
+            self.waypoint_dirty = True
             print(f"[Management] Sent waypoint ({x}, {y}) to Truck {self.selected_truck}")
 
         except ValueError:
@@ -344,6 +383,8 @@ class MineManagementGUI:
 
     def draw_trucks(self):
         """Draw all trucks on map"""
+        # Always redraw for smooth updates (canvas operations are lightweight)
+        # Clear only what needs to be redrawn
         self.canvas.delete('truck')
         self.canvas.delete('trail')
         self.canvas.delete('waypoint')
@@ -365,13 +406,13 @@ class MineManagementGUI:
             x = truck.position_x / scale
             y = truck.position_y / scale
 
-            # Draw trail
+            # Draw trail (optimized: single polyline instead of multiple segments)
             if len(truck.history) > 1:
-                trail_points = [(px/scale, py/scale) for px, py in truck.history]
-                for i in range(len(trail_points) - 1):
-                    self.canvas.create_line(trail_points[i][0], trail_points[i][1],
-                                           trail_points[i+1][0], trail_points[i+1][1],
-                                           fill='cyan', width=1, tags='trail')
+                trail_coords = []
+                for px, py in truck.history:
+                    trail_coords.extend([px/scale, py/scale])
+                self.canvas.create_line(*trail_coords, fill='cyan', width=1,
+                                       smooth=True, tags='trail')
 
             # Determine color
             if truck.has_any_fault():
@@ -395,9 +436,17 @@ class MineManagementGUI:
             end_y = y + dir_len * math.sin(rad)
             self.canvas.create_line(x, y, end_x, end_y, fill='yellow', width=2, tags='truck')
 
-            # Draw label
-            self.canvas.create_text(x, y-size-10, text=f"T{truck.id}",
+            # Draw label with arrival indicator
+            label_text = f"T{truck.id}"
+            if truck.arrived:
+                label_text += " ✓"  # Checkmark for arrived
+            self.canvas.create_text(x, y-size-10, text=label_text,
                                    fill='white', font=('Arial', 10, 'bold'), tags='truck')
+
+        # Clear dirty flags after redrawing
+        for truck in self.trucks.values():
+            truck.dirty = False
+        self.waypoint_dirty = False
 
     def update_info_panel(self):
         """Update truck information display"""
@@ -409,22 +458,42 @@ class MineManagementGUI:
 
             info = f"Truck {truck.id} Information\n"
             info += "=" * 30 + "\n\n"
+
+            # Position and heading
             info += f"Position: ({truck.position_x}, {truck.position_y})\n"
             info += f"Heading: {truck.angle}°\n"
             info += f"Temperature: {truck.temperature}°C\n"
-            info += f"\nMode: {truck.mode}\n"
+
+            # Mode and status
+            info += f"\n--- Status ---\n"
+            info += f"Mode: {truck.mode}\n"
             info += f"Fault State: {'FAULT' if truck.fault_state else 'OK'}\n"
-            info += f"\nElectrical: {'FAULT' if truck.fault_electrical else 'OK'}\n"
+
+            # Actuator outputs and arrival
+            info += f"\n--- Control ---\n"
+            info += f"Acceleration: {truck.acceleration}%\n"
+            info += f"Steering: {truck.steering}°\n"
+            info += f"Arrived: {'YES' if truck.arrived else 'NO'}\n"
+
+            # Fault details
+            info += f"\n--- Faults ---\n"
+            info += f"Electrical: {'FAULT' if truck.fault_electrical else 'OK'}\n"
             info += f"Hydraulic: {'FAULT' if truck.fault_hydraulic else 'OK'}\n"
 
+            # Temperature warnings
             if truck.temperature > 120:
-                info += f"\nWARNING: CRITICAL TEMPERATURE!\n"
+                info += f"\n⚠ CRITICAL TEMPERATURE!\n"
             elif truck.temperature > 95:
-                info += f"\nWARNING: High temperature\n"
+                info += f"\n⚠ High temperature\n"
 
-            if truck.last_update:
-                age = (datetime.now() - truck.last_update).total_seconds()
-                info += f"\nLast update: {age:.1f}s ago\n"
+            # Update timing info
+            info += f"\n--- Updates ---\n"
+            if truck.last_sensor_update:
+                age = (datetime.now() - truck.last_sensor_update).total_seconds()
+                info += f"Sensors: {age:.1f}s ago\n"
+            if truck.last_command_update:
+                age = (datetime.now() - truck.last_command_update).total_seconds()
+                info += f"Commands: {age:.1f}s ago\n"
 
             self.info_text.insert('1.0', info)
 
@@ -435,7 +504,7 @@ class MineManagementGUI:
         self.draw_trucks()
         self.update_info_panel()
 
-        # Schedule next update
+        # Schedule next update (100ms for more responsive updates)
         self.root.after(100, self.update_gui)
 
     def on_closing(self):

@@ -3,6 +3,7 @@
 
 #include "circular_buffer.h"
 #include "common_types.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -45,8 +46,9 @@ public:
      * @param buffer Reference to shared circular buffer
      * @param truck_id Truck identification number
      * @param log_period_ms Logging period in milliseconds (default: 1000ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    DataCollector(CircularBuffer& buffer, int truck_id = 1, int log_period_ms = 1000);
+    DataCollector(CircularBuffer& buffer, int truck_id = 1, int log_period_ms = 1000, PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Data Collector task
@@ -129,6 +131,8 @@ private:
 
     mutable std::mutex state_mutex_;        // Protects state data
     TruckState current_state_;              // Current truck state
+
+    PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 };
 
 #endif // DATA_COLLECTOR_H

@@ -366,7 +366,8 @@ class MineSimulation:
             self.draw()
 
             frame_count += 1
-            if frame_count % 10 == 0:
+            # Publish sensor data every 3 frames (10 Hz at 30 FPS)
+            if frame_count % 3 == 0:
                 self.publish_sensor_data()
 
             self.clock.tick(FPS)

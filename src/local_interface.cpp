@@ -6,10 +6,11 @@
 #include <unistd.h> 
 #include <cstdlib>
 
-LocalInterface::LocalInterface(CircularBuffer& buffer, int update_period_ms)
+LocalInterface::LocalInterface(CircularBuffer& buffer, int update_period_ms, PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
       update_period_ms_(update_period_ms),
-      running_(false) {
+      running_(false),
+      perf_monitor_(perf_monitor) {
     truck_state_.fault = false;
     truck_state_.automatic = false;
     latest_sensor_data_ = {};
@@ -61,6 +62,8 @@ void LocalInterface::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
+        auto start_time = std::chrono::steady_clock::now();
+
         size_t buffer_count = buffer_.size();
         SensorData sensor_data = buffer_.peek_latest();
 
@@ -71,6 +74,12 @@ void LocalInterface::task_loop() {
         }
 
         display_status();
+
+        // Record execution time
+        if (perf_monitor_) {
+            perf_monitor_->end_measurement("LocalInterface", start_time);
+        }
+
         next_execution += std::chrono::milliseconds(update_period_ms_);
         std::this_thread::sleep_until(next_execution);
     }

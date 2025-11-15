@@ -3,6 +3,7 @@
 
 #include "circular_buffer.h"
 #include "common_types.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -37,8 +38,9 @@ public:
      *
      * @param buffer Reference to shared circular buffer
      * @param period_ms Task execution period in milliseconds (default: 50ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    CommandLogic(CircularBuffer& buffer, int period_ms = 50);
+    CommandLogic(CircularBuffer& buffer, int period_ms = 50, PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Command Logic task and stop thread
@@ -145,6 +147,8 @@ private:
 
     bool command_pending_;              // Flag for new command
     bool fault_rearmed_;                // Flag for fault rearm action
+
+    PerformanceMonitor* perf_monitor_;  // Performance monitoring (optional)
 };
 
 #endif // COMMAND_LOGIC_H

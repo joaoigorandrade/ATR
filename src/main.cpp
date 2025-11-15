@@ -16,16 +16,25 @@
 #include "data_collector.h"
 #include "local_interface.h"
 #include "watchdog.h"
+#include "performance_monitor.h"
 #include <sstream>
 #include <map>
 
 namespace fs = std::filesystem;
 
 std::atomic<bool> system_running(true);
+PerformanceMonitor* global_perf_monitor = nullptr;
 
 void signal_handler(int signal) {
     if (signal == SIGINT) {
         LOG_INFO(MAIN) << "event" << "shutdown_signal";
+
+        // Print performance report on shutdown
+        if (global_perf_monitor) {
+            std::cout << "\n";
+            global_perf_monitor->print_report();
+        }
+
         system_running = false;
     }
 }
@@ -270,6 +279,41 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
     }
 }
 
+void write_truck_state_to_bridge(int truck_id, const TruckState& state) {
+    const std::string bridge_dir = "bridge/to_mqtt";
+
+    try {
+        if (!fs::exists(bridge_dir)) {
+            fs::create_directories(bridge_dir);
+        }
+
+        auto now = std::chrono::system_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
+        long timestamp = ms.count();
+
+        std::ostringstream filename;
+        filename << bridge_dir << "/" << timestamp << "_truck_" << truck_id << "_state.json";
+
+        std::ostringstream json_content;
+        json_content << "{\n"
+                    << "  \"topic\": \"truck/" << truck_id << "/state\",\n"
+                    << "  \"payload\": {\n"
+                    << "    \"automatic\": " << (state.automatic ? "true" : "false") << ",\n"
+                    << "    \"fault\": " << (state.fault ? "true" : "false") << "\n"
+                    << "  }\n"
+                    << "}";
+
+        std::ofstream file(filename.str());
+        if (file.is_open()) {
+            file << json_content.str();
+            file.close();
+        }
+
+    } catch (const std::exception& e) {
+        // Silently ignore errors - bridge might not be ready yet
+    }
+}
+
 int main() {
 
     Logger::init(Logger::Level::INFO);
@@ -285,6 +329,19 @@ int main() {
 
     LOG_INFO(MAIN) << "event" << "system_start" << "stage" << 2;
 
+    // Create performance monitor
+    PerformanceMonitor perf_monitor;
+    global_perf_monitor = &perf_monitor;
+
+    // Register tasks with expected periods
+    perf_monitor.register_task("SensorProcessing", 100);
+    perf_monitor.register_task("CommandLogic", 50);
+    perf_monitor.register_task("FaultMonitoring", 100);
+    perf_monitor.register_task("NavigationControl", 50);
+    perf_monitor.register_task("DataCollector", 1000);
+    perf_monitor.register_task("LocalInterface", 2000);
+
+    LOG_INFO(MAIN) << "event" << "perf_monitor_init" << "tasks" << 6;
 
     CircularBuffer buffer;
     LOG_INFO(MAIN) << "event" << "buffer_create" << "size" << 200;
@@ -292,13 +349,13 @@ int main() {
 
     LOG_DEBUG(MAIN) << "event" << "creating_tasks";
 
-    SensorProcessing sensor_task(buffer, 5, 100);
-    CommandLogic command_task(buffer, 50);
-    FaultMonitoring fault_task(buffer, 100);
-    NavigationControl nav_task(buffer, 50);
+    SensorProcessing sensor_task(buffer, 5, 100, &perf_monitor);
+    CommandLogic command_task(buffer, 50, &perf_monitor);
+    FaultMonitoring fault_task(buffer, 100, &perf_monitor);
+    NavigationControl nav_task(buffer, 50, &perf_monitor);
     RoutePlanning route_planner;
-    DataCollector data_collector(buffer, 1, 1000);
-    LocalInterface local_interface(buffer, 2000);
+    DataCollector data_collector(buffer, 1, 1000, &perf_monitor);
+    LocalInterface local_interface(buffer, 2000, &perf_monitor);
 
     LOG_DEBUG(MAIN) << "event" << "tasks_created";
 
@@ -400,11 +457,11 @@ int main() {
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
 
-
+        // Publish actuator commands and truck state via MQTT bridge
         write_actuator_commands_to_bridge(1, actuator_output);
+        write_truck_state_to_bridge(1, state);
 
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
 

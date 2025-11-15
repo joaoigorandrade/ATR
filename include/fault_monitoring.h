@@ -3,6 +3,7 @@
 
 #include "circular_buffer.h"
 #include "common_types.h"
+#include "performance_monitor.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -43,8 +44,9 @@ public:
      *
      * @param buffer Reference to shared circular buffer
      * @param period_ms Task execution period in milliseconds (default: 100ms)
+     * @param perf_monitor Pointer to performance monitor (optional)
      */
-    FaultMonitoring(CircularBuffer& buffer, int period_ms = 100);
+    FaultMonitoring(CircularBuffer& buffer, int period_ms = 100, PerformanceMonitor* perf_monitor = nullptr);
 
     /**
      * @brief Destroy Fault Monitoring task
@@ -111,6 +113,8 @@ private:
 
     std::mutex callback_mutex_;             // Protects callback list
     std::vector<FaultCallback> callbacks_;  // Registered fault callbacks
+
+    PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 };
 
 #endif // FAULT_MONITORING_H
