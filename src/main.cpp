@@ -19,7 +19,9 @@
 #include "performance_monitor.h"
 #include <sstream>
 #include <map>
+#include "json.hpp"
 
+using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 std::atomic<bool> system_running(true);
@@ -40,42 +42,6 @@ void signal_handler(int signal) {
 }
 
 
-int extract_json_int(const std::string& json, const std::string& key) {
-    size_t pos = json.find("\"" + key + "\"");
-    if (pos == std::string::npos) return 0;
-
-    pos = json.find(":", pos);
-    if (pos == std::string::npos) return 0;
-
-    size_t start = pos + 1;
-    while (start < json.length() && (json[start] == ' ' || json[start] == '\t')) start++;
-
-    size_t end = start;
-    while (end < json.length() && (isdigit(json[end]) || json[end] == '-')) end++;
-
-    if (end > start) {
-        return std::stoi(json.substr(start, end - start));
-    }
-    return 0;
-}
-
-bool extract_json_bool(const std::string& json, const std::string& key) {
-    size_t pos = json.find("\"" + key + "\"");
-    if (pos == std::string::npos) return false;
-
-    pos = json.find(":", pos);
-    if (pos == std::string::npos) return false;
-
-    size_t true_pos = json.find("true", pos);
-    size_t false_pos = json.find("false", pos);
-
-    if (true_pos != std::string::npos && (false_pos == std::string::npos || true_pos < false_pos)) {
-        return true;
-    }
-    return false;
-}
-
-
 bool read_sensor_data_from_bridge(RawSensorData& data) {
     const std::string bridge_dir = "bridge/from_mqtt";
 
@@ -91,29 +57,20 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
                 std::ifstream file(entry.path());
                 if (!file.is_open()) continue;
 
-                std::stringstream buffer;
-                buffer << file.rdbuf();
-                std::string json_content = buffer.str();
+                json j = json::parse(file);
                 file.close();
 
-                size_t payload_pos = json_content.find("\"payload\"");
-                std::string payload_content = json_content;
-                if (payload_pos != std::string::npos) {
-                    size_t payload_start = json_content.find("{", payload_pos);
-                    if (payload_start != std::string::npos) {
-                        payload_content = json_content.substr(payload_start);
-                    }
+                if (j.contains("payload")) {
+                    auto& payload = j["payload"];
+                    data.position_x = payload.value("position_x", 0);
+                    data.position_y = payload.value("position_y", 0);
+                    data.angle_x = payload.value("angle_x", 0);
+                    data.temperature = payload.value("temperature", 0);
+                    data.fault_electrical = payload.value("fault_electrical", false);
+                    data.fault_hydraulic = payload.value("fault_hydraulic", false);
                 }
 
-                data.position_x = extract_json_int(payload_content, "position_x");
-                data.position_y = extract_json_int(payload_content, "position_y");
-                data.angle_x = extract_json_int(payload_content, "angle_x");
-                data.temperature = extract_json_int(payload_content, "temperature");
-                data.fault_electrical = extract_json_bool(payload_content, "fault_electrical");
-                data.fault_hydraulic = extract_json_bool(payload_content, "fault_hydraulic");
-
                 fs::remove(entry.path());
-
                 return true;
             }
         }
@@ -140,42 +97,34 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                 std::ifstream file(entry.path());
                 if (!file.is_open()) continue;
 
-                std::stringstream buffer;
-                buffer << file.rdbuf();
-                std::string json_content = buffer.str();
+                json j = json::parse(file);
                 file.close();
 
-                size_t payload_pos = json_content.find("\"payload\"");
-                std::string payload_content = json_content;
-                if (payload_pos != std::string::npos) {
-                    size_t payload_start = json_content.find("{", payload_pos);
-                    if (payload_start != std::string::npos) {
-                        payload_content = json_content.substr(payload_start);
+                if (j.contains("payload")) {
+                    auto& payload = j["payload"];
+
+                    bool has_auto_mode = payload.contains("auto_mode");
+                    bool has_manual_mode = payload.contains("manual_mode");
+                    bool has_rearm = payload.contains("rearm");
+
+                    if (!has_auto_mode && !has_manual_mode && !has_rearm) {
+                        fs::remove(entry.path());
+                        continue;
+                    }
+
+                    cmd.auto_mode = payload.value("auto_mode", false);
+                    cmd.manual_mode = payload.value("manual_mode", false);
+                    cmd.rearm = payload.value("rearm", false);
+
+                    if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
+                        LOG_INFO(MAIN) << "event" << "cmd_recv"
+                                       << "auto" << cmd.auto_mode
+                                       << "manual" << cmd.manual_mode
+                                       << "rearm" << cmd.rearm;
                     }
                 }
 
-                bool has_auto_mode = payload_content.find("\"auto_mode\"") != std::string::npos;
-                bool has_manual_mode = payload_content.find("\"manual_mode\"") != std::string::npos;
-                bool has_rearm = payload_content.find("\"rearm\"") != std::string::npos;
-
-                if (!has_auto_mode && !has_manual_mode && !has_rearm) {
-                    fs::remove(entry.path());
-                    continue;
-                }
-
-                cmd.auto_mode = extract_json_bool(payload_content, "auto_mode");
-                cmd.manual_mode = extract_json_bool(payload_content, "manual_mode");
-                cmd.rearm = extract_json_bool(payload_content, "rearm");
-
                 fs::remove(entry.path());
-
-                if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
-                    LOG_INFO(MAIN) << "event" << "cmd_recv"
-                                   << "auto" << cmd.auto_mode
-                                   << "manual" << cmd.manual_mode
-                                   << "rearm" << cmd.rearm;
-                }
-
                 return true;
             }
         }
@@ -202,23 +151,15 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
                 std::ifstream file(entry.path());
                 if (!file.is_open()) continue;
 
-                std::stringstream buffer;
-                buffer << file.rdbuf();
-                std::string json_content = buffer.str();
+                json j = json::parse(file);
                 file.close();
 
-                size_t payload_pos = json_content.find("\"payload\"");
-                std::string payload_content = json_content;
-                if (payload_pos != std::string::npos) {
-                    size_t payload_start = json_content.find("{", payload_pos);
-                    if (payload_start != std::string::npos) {
-                        payload_content = json_content.substr(payload_start);
-                    }
+                if (j.contains("payload")) {
+                    auto& payload = j["payload"];
+                    setpoint.target_position_x = payload.value("target_x", 0);
+                    setpoint.target_position_y = payload.value("target_y", 0);
+                    setpoint.target_speed = payload.value("target_speed", 0);
                 }
-
-                setpoint.target_position_x = extract_json_int(payload_content, "target_x");
-                setpoint.target_position_y = extract_json_int(payload_content, "target_y");
-                setpoint.target_speed = extract_json_int(payload_content, "target_speed");
 
                 fs::remove(entry.path());
 
@@ -242,11 +183,9 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
     const std::string bridge_dir = "bridge/to_mqtt";
 
     try {
-
         if (!fs::exists(bridge_dir)) {
             fs::create_directories(bridge_dir);
         }
-
 
         auto now = std::chrono::system_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
@@ -255,22 +194,18 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
         std::ostringstream filename;
         filename << bridge_dir << "/" << timestamp << "_truck_" << truck_id << "_commands.json";
 
-
-        std::ostringstream json_content;
-        json_content << "{\n"
-                    << "  \"topic\": \"truck/" << truck_id << "/commands\",\n"
-                    << "  \"payload\": {\n"
-                    << "    \"acceleration\": " << output.acceleration << ",\n"
-                    << "    \"steering\": " << output.steering << ",\n"
-                    << "    \"arrived\": " << (output.arrived ? "true" : "false") << "\n"
-                    << "  }\n"
-                    << "}";
-
-
+        json j = {
+            {"topic", "truck/" + std::to_string(truck_id) + "/commands"},
+            {"payload", {
+                {"acceleration", output.acceleration},
+                {"steering", output.steering},
+                {"arrived", output.arrived}
+            }}
+        };
 
         std::ofstream file(filename.str());
         if (file.is_open()) {
-            file << json_content.str();
+            file << j.dump(2);
             file.close();
         }
 
@@ -294,18 +229,17 @@ void write_truck_state_to_bridge(int truck_id, const TruckState& state) {
         std::ostringstream filename;
         filename << bridge_dir << "/" << timestamp << "_truck_" << truck_id << "_state.json";
 
-        std::ostringstream json_content;
-        json_content << "{\n"
-                    << "  \"topic\": \"truck/" << truck_id << "/state\",\n"
-                    << "  \"payload\": {\n"
-                    << "    \"automatic\": " << (state.automatic ? "true" : "false") << ",\n"
-                    << "    \"fault\": " << (state.fault ? "true" : "false") << "\n"
-                    << "  }\n"
-                    << "}";
+        json j = {
+            {"topic", "truck/" + std::to_string(truck_id) + "/state"},
+            {"payload", {
+                {"automatic", state.automatic},
+                {"fault", state.fault}
+            }}
+        };
 
         std::ofstream file(filename.str());
         if (file.is_open()) {
-            file << json_content.str();
+            file << j.dump(2);
             file.close();
         }
 
