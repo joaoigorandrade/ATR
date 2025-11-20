@@ -197,7 +197,7 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
         json j = {
             {"topic", "truck/" + std::to_string(truck_id) + "/commands"},
             {"payload", {
-                {"acceleration", output.acceleration},
+                {"acceleration", output.velocity},
                 {"steering", output.steering},
                 {"arrived", output.arrived}
             }}

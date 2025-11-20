@@ -21,7 +21,7 @@
  * 5. Calculates actuator outputs based on current mode
  *
  * State Machine:
- * - Manual Mode: Direct operator control of acceleration/steering
+ * - Manual Mode: Direct operator control of velocity/steering
  * - Automatic Mode: Navigation control determines outputs
  * - Fault State: Overrides other states, requires rearm
  *
@@ -85,7 +85,7 @@ public:
      *
      * Thread-safe read of actuator values.
      *
-     * @return ActuatorOutput Current acceleration and steering
+     * @return ActuatorOutput Current velocity and steering
      */
     ActuatorOutput get_actuator_output() const;
 

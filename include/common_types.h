@@ -39,12 +39,12 @@ struct OperatorCommand {
  * These control the truck's physical actuators.
  */
 struct ActuatorOutput {
-    int acceleration;  // o_aceleracao: -100 to 100 (%)
+    int velocity;  // o_aceleracao: -100 to 100 (%)
     int steering;      // o_direcao: -180 to 180 (degrees)
     bool arrived;      // Navigation reached target position
 
     // Default constructor
-    ActuatorOutput() : acceleration(0), steering(0), arrived(false) {}
+    ActuatorOutput() : velocity(0), steering(0), arrived(false) {}
 };
 
 /**

@@ -163,7 +163,7 @@ bool CommandLogic::check_faults(const SensorData& data) {
 
 void CommandLogic::calculate_actuator_outputs() {
     if (current_state_.fault) {
-        actuator_output_.acceleration = 0;
+        actuator_output_.velocity = 0;
         actuator_output_.steering = 0;
         return;
     }
@@ -171,7 +171,7 @@ void CommandLogic::calculate_actuator_outputs() {
     if (current_state_.automatic) {
         actuator_output_ = navigation_output_;
     } else {
-        actuator_output_.acceleration = pending_command_.accelerate;
+        actuator_output_.velocity = pending_command_.accelerate;
         int steering_delta = pending_command_.steer_left - pending_command_.steer_right;
         actuator_output_.steering += steering_delta;
 
@@ -181,10 +181,10 @@ void CommandLogic::calculate_actuator_outputs() {
             actuator_output_.steering = -180;
         }
 
-        if (actuator_output_.acceleration > 100) {
-            actuator_output_.acceleration = 100;
-        } else if (actuator_output_.acceleration < -100) {
-            actuator_output_.acceleration = -100;
+        if (actuator_output_.velocity > 100) {
+            actuator_output_.velocity = 100;
+        } else if (actuator_output_.velocity < -100) {
+            actuator_output_.velocity = -100;
         }
     }
 }

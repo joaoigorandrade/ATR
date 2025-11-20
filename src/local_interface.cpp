@@ -96,7 +96,7 @@ void LocalInterface::display_status() {
                  << "temp" << latest_sensor_data_.temperature
                  << "elec" << (latest_sensor_data_.fault_electrical ? 1 : 0)
                  << "hydr" << (latest_sensor_data_.fault_hydraulic ? 1 : 0)
-                 << "acc" << actuator_output_.acceleration
+                 << "acc" << actuator_output_.velocity
                  << "str" << actuator_output_.steering
                  << "arr" << (actuator_output_.arrived ? 1 : 0);
 
@@ -143,7 +143,7 @@ void LocalInterface::display_status() {
         }
         std::cout << std::endl;
 
-        std::cout << "ACC:" << std::setw(4) << actuator_output_.acceleration << "% "
+        std::cout << "ACC:" << std::setw(4) << actuator_output_.velocity << "% "
                   << "STR:" << std::setw(4) << actuator_output_.steering << "° ";
         if (actuator_output_.arrived) {
             std::cout << "\033[1;32m[ARRIVED]\033[0m";

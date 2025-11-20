@@ -12,7 +12,7 @@
  * @brief Navigation Control Task
  *
  * Implements control algorithms for:
- * 1. Speed control (acceleration)
+ * 1. Speed control (velocity)
  * 2. Angular position control (steering)
  *
  * Operates in two modes:
@@ -88,26 +88,23 @@ private:
     void task_loop();
 
     /**
-     * @brief Execute speed controller
-     *
-     * Simple proportional controller for speed/acceleration.
-     *
-     * @param current Current position/speed
-     * @param target Target position/speed
-     * @return int Control output (acceleration)
+     * @brief Navigation states
      */
-    int speed_controller(int current_x, int current_y, int target_x, int target_y);
+    enum class NavState {
+        ROTATING,   // Rotating to align with target
+        MOVING,     // Moving straight toward target
+        ARRIVED     // Within arrival radius
+    };
 
     /**
-     * @brief Execute angular position controller
-     *
-     * Simple proportional controller for heading angle.
-     *
-     * @param current_angle Current heading (degrees)
-     * @param target_angle Target heading (degrees)
-     * @return int Control output (steering angle)
+     * @brief Calculate angle from current position to target
      */
-    int angle_controller(int current_angle, int target_angle);
+    int calculate_target_heading(int current_x, int current_y, int target_x, int target_y);
+
+    /**
+     * @brief Execute simplified navigation control
+     */
+    void execute_control(const SensorData& sensor_data);
 
     CircularBuffer& buffer_;                // Reference to shared buffer
     int period_ms_;                         // Control loop period
@@ -119,19 +116,14 @@ private:
     NavigationSetpoint setpoint_;           // Current setpoint values
     TruckState truck_state_;                // Current truck state
     ActuatorOutput output_;                 // Current control outputs
-    double previous_distance_;              // Track previous distance for approach detection
+    NavState nav_state_;                    // Current navigation state
 
     PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 
-    // Control gains (tunable parameters)
-    static constexpr double KP_SPEED = 0.15;   // Speed controller gain (increased for better navigation)
-    static constexpr double KP_ANGLE = 0.15;   // Angle controller gain (reduced for smoother steering)
-    static constexpr int MAX_ACCELERATION = 20;  // Maximum acceleration for speed controller (further reduced for precision)
-
-    // Arrival detection thresholds
-    static constexpr double ARRIVAL_DISTANCE_THRESHOLD = 2.0;  // Distance in units (reduced for precision)
-    static constexpr double ARRIVAL_ANGLE_THRESHOLD = 5.0;     // Angle error in degrees (tightened for accuracy)
-    static constexpr double DECELERATION_DISTANCE = 30.0;      // Start slowing down even earlier for aggressive deceleration
+    static constexpr int FIXED_SPEED = 30;
+    static constexpr int ROTATION_SPEED = 40;
+    static constexpr double ARRIVAL_RADIUS = 5.0;
+    static constexpr double ALIGNMENT_THRESHOLD = 10.0;
 };
 
 #endif // NAVIGATION_CONTROL_H

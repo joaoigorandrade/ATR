@@ -11,13 +11,13 @@ NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms, Perf
     : buffer_(buffer),
       period_ms_(period_ms),
       running_(false),
-      previous_distance_(std::numeric_limits<double>::max()),
+      nav_state_(NavState::ROTATING),
       perf_monitor_(perf_monitor) {
 
     truck_state_.fault = false;
     truck_state_.automatic = false;
     output_.arrived = false;
-    output_.acceleration = 0;
+    output_.velocity = 0;
     output_.steering = 0;
 
     LOG_INFO(NC) << "event" << "init" << "period_ms" << period_ms_;
@@ -34,13 +34,9 @@ void NavigationControl::start() {
 
     running_ = true;
     task_thread_ = std::thread(&NavigationControl::task_loop, this);
-
-    // Set real-time scheduling priority (medium priority for navigation control)
-    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
     pthread_t native_handle = task_thread_.native_handle();
     struct sched_param param;
-    param.sched_priority = 70; // Priority: 70 (medium, lower than command logic)
-
+    param.sched_priority = 70;
     int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
     if (result == 0) {
         LOG_INFO(NC) << "event" << "start" << "rt_priority" << 70 << "sched" << "FIFO";
@@ -72,7 +68,7 @@ void NavigationControl::set_setpoint(const NavigationSetpoint& setpoint) {
     setpoint_ = setpoint;
 
     if (new_target) {
-        previous_distance_ = std::numeric_limits<double>::max();
+        nav_state_ = NavState::ROTATING;
         output_.arrived = false;
     }
 }
@@ -98,74 +94,26 @@ void NavigationControl::task_loop() {
         {
             std::lock_guard<std::mutex> lock(control_mutex_);
 
-
             bool controllers_enabled = truck_state_.automatic && !truck_state_.fault;
 
             if (controllers_enabled) {
-                if (output_.arrived) {
-
-                    output_.acceleration = 0;
-                    output_.steering = 0;
-                } else {
-
-                    int dx = setpoint_.target_position_x - sensor_data.position_x;
-                    int dy = setpoint_.target_position_y - sensor_data.position_y;
-                    double distance = std::sqrt(dx*dx + dy*dy);
-
-                    int angle_error = setpoint_.target_angle - sensor_data.angle_x;
-                    while (angle_error > 180) angle_error -= 360;
-                    while (angle_error < -180) angle_error += 360;
-                    double abs_angle_error = std::abs(angle_error);
-
-                    bool distance_increasing = distance > previous_distance_ &&
-                                              previous_distance_ < ARRIVAL_DISTANCE_THRESHOLD * 2;
-
-
-                    previous_distance_ = distance;
-
-                    bool arrival_condition = (distance <= ARRIVAL_DISTANCE_THRESHOLD &&
-                                             abs_angle_error <= ARRIVAL_ANGLE_THRESHOLD) ||
-                                            (distance_increasing && distance < ARRIVAL_DISTANCE_THRESHOLD * 1.5);
-
-                    if (arrival_condition) {
-                        output_.arrived = true;
-                        output_.acceleration = 0;
-                        output_.steering = 0;
-
-                        LOG_INFO(NC) << "event" << "arrived"
-                                     << "dist" << static_cast<int>(distance)
-                                     << "ang_err" << static_cast<int>(abs_angle_error)
-                                     << "overshoot" << (distance_increasing ? 1 : 0);
-
-                    } else {
-                        output_.acceleration = speed_controller(
-                            sensor_data.position_x, sensor_data.position_y,
-                            setpoint_.target_position_x, setpoint_.target_position_y
-                        );
-
-                        output_.steering = angle_controller(
-                            sensor_data.angle_x,
-                            setpoint_.target_angle
-                        );
-                    }
-                }
+                execute_control(sensor_data);
             } else {
                 setpoint_.target_position_x = sensor_data.position_x;
                 setpoint_.target_position_y = sensor_data.position_y;
                 setpoint_.target_angle = sensor_data.angle_x;
 
-                output_.acceleration = 0;
+                output_.velocity = 0;
                 output_.steering = 0;
                 output_.arrived = false;
+                nav_state_ = NavState::ROTATING;
             }
         }
 
-        // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("NavigationControl");
         }
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("NavigationControl", start_time);
         }
@@ -175,53 +123,78 @@ void NavigationControl::task_loop() {
     }
 }
 
-int NavigationControl::speed_controller(int current_x, int current_y,
-                                        int target_x, int target_y) {
-
+int NavigationControl::calculate_target_heading(int current_x, int current_y,
+                                                 int target_x, int target_y) {
     int dx = target_x - current_x;
     int dy = target_y - current_y;
-    double distance = std::sqrt(dx*dx + dy*dy);
 
-    int control_output;
+    double angle_rad = std::atan2(dy, dx);
+    int angle_deg = static_cast<int>(angle_rad * 180.0 / M_PI);
 
-    if (distance < 2.0) {
-        // Very close to target - stop completely
-        control_output = 0;
-    } else if (distance < 12.0) {
-        // Extended close zone - aggressive deceleration
-        double deceleration_factor = distance / 12.0;
-        control_output = static_cast<int>(10 * deceleration_factor);
-    } else if (distance < DECELERATION_DISTANCE) {
-        // Within deceleration zone - reduce acceleration aggressively
-        double deceleration_factor = distance / DECELERATION_DISTANCE;
-        // Use even more aggressive curve for deceleration
-        deceleration_factor = std::pow(deceleration_factor, 1.5); // More aggressive than sqrt
-        control_output = static_cast<int>(MAX_ACCELERATION * deceleration_factor * 0.4);
-    } else {
-        // Far from target - constant acceleration
-        control_output = MAX_ACCELERATION;
-    }
+    while (angle_deg < 0) angle_deg += 360;
+    while (angle_deg >= 360) angle_deg -= 360;
 
-    // Clamp output to reasonable range
-    if (control_output > 100) control_output = 100;
-    if (control_output < 0) control_output = 0; // No reverse acceleration
-
-    return control_output;
+    return angle_deg;
 }
 
-int NavigationControl::angle_controller(int current_angle, int target_angle) {
+void NavigationControl::execute_control(const SensorData& sensor_data) {
+    int dx = setpoint_.target_position_x - sensor_data.position_x;
+    int dy = setpoint_.target_position_y - sensor_data.position_y;
+    double distance = std::sqrt(dx*dx + dy*dy);
 
-    int error = target_angle - current_angle;
+    if (distance <= ARRIVAL_RADIUS) {
+        nav_state_ = NavState::ARRIVED;
+        output_.arrived = true;
+        output_.velocity = 0;
+        output_.steering = 0;
 
+        LOG_INFO(NC) << "event" << "arrived"
+                     << "dist" << static_cast<int>(distance);
+        return;
+    }
 
-    while (error > 180) error -= 360;
-    while (error < -180) error += 360;
+    int target_heading = calculate_target_heading(
+        sensor_data.position_x, sensor_data.position_y,
+        setpoint_.target_position_x, setpoint_.target_position_y
+    );
 
+    int heading_error = target_heading - sensor_data.angle_x;
+    while (heading_error > 180) heading_error -= 360;
+    while (heading_error < -180) heading_error += 360;
 
-    int control_output = static_cast<int>(KP_ANGLE * error);
+    double abs_heading_error = std::abs(heading_error);
 
-    if (control_output > 80) control_output = 80;
-    if (control_output < -80) control_output = -80;
+    switch (nav_state_) {
+        case NavState::ROTATING:
+            output_.velocity = 0;
 
-    return control_output;
+            if (abs_heading_error <= ALIGNMENT_THRESHOLD) {
+                nav_state_ = NavState::MOVING;
+                LOG_INFO(NC) << "event" << "aligned"
+                             << "heading_err" << static_cast<int>(abs_heading_error);
+            } else {
+                if (heading_error > 0) {
+                    output_.steering = ROTATION_SPEED;
+                } else {
+                    output_.steering = -ROTATION_SPEED;
+                }
+            }
+            break;
+
+        case NavState::MOVING:
+            output_.velocity = FIXED_SPEED;
+            output_.steering = 0;
+
+            if (abs_heading_error > ALIGNMENT_THRESHOLD * 2) {
+                nav_state_ = NavState::ROTATING;
+                LOG_INFO(NC) << "event" << "misaligned"
+                             << "heading_err" << static_cast<int>(abs_heading_error);
+            }
+            break;
+
+        case NavState::ARRIVED:
+            output_.velocity = 0;
+            output_.steering = 0;
+            break;
+    }
 }
