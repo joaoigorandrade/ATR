@@ -21,6 +21,26 @@
 #include <map>
 #include "json.hpp"
 
+constexpr int SENSOR_PROCESSING_PERIOD_MS = 20;
+constexpr int COMMAND_LOGIC_PERIOD_MS = 10;
+constexpr int FAULT_MONITORING_PERIOD_MS = 20;
+constexpr int NAVIGATION_CONTROL_PERIOD_MS = 10;
+constexpr int DATA_COLLECTOR_PERIOD_MS = 1000;
+constexpr int LOCAL_INTERFACE_PERIOD_MS = 2000;
+constexpr int NUMBER_OF_REGISTERED_TASKS_PERF = 6;
+
+constexpr int CIRCULAR_BUFFER_SIZE = 200;
+constexpr int WATCHDOG_CHECK_PERIOD_MS = 100;
+
+constexpr int SENSOR_PROCESSING_WATCHDOG_TIMEOUT_MS = 60;
+constexpr int COMMAND_LOGIC_WATCHDOG_TIMEOUT_MS = 30;
+constexpr int FAULT_MONITORING_WATCHDOG_TIMEOUT_MS = 60;
+constexpr int NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS = 30;
+constexpr int DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS = 3000;
+
+constexpr int SENSOR_FILTER_ORDER = 5;
+constexpr int TRUCK_ID = 1;
+
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
@@ -31,7 +51,6 @@ void signal_handler(int signal) {
     if (signal == SIGINT) {
         LOG_INFO(MAIN) << "event" << "shutdown_signal";
 
-        // Print performance report on shutdown
         if (global_perf_monitor) {
             std::cout << "\n";
             global_perf_monitor->print_report();
@@ -75,7 +94,6 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
             }
         }
     } catch (const std::exception& e) {
-        // Silently ignore errors - bridge might not be ready yet
     }
 
     return false;
@@ -129,7 +147,6 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
             }
         }
     } catch (const std::exception& e) {
-        // Silently ignore errors - bridge might not be ready yet
     }
 
     return false;
@@ -172,7 +189,6 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
             }
         }
     } catch (const std::exception& e) {
-        // Silently ignore errors - bridge might not be ready yet
     }
 
     return false;
@@ -210,7 +226,6 @@ void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& outpu
         }
 
     } catch (const std::exception& e) {
-        // Silently ignore errors - bridge might not be ready yet
     }
 }
 
@@ -244,7 +259,6 @@ void write_truck_state_to_bridge(int truck_id, const TruckState& state) {
         }
 
     } catch (const std::exception& e) {
-        // Silently ignore errors - bridge might not be ready yet
     }
 }
 
@@ -263,44 +277,41 @@ int main() {
 
     LOG_INFO(MAIN) << "event" << "system_start" << "stage" << 2;
 
-    // Create performance monitor
     PerformanceMonitor perf_monitor;
     global_perf_monitor = &perf_monitor;
 
-    // Register tasks with expected periods
-    perf_monitor.register_task("SensorProcessing", 20);
-    perf_monitor.register_task("CommandLogic", 10);
-    perf_monitor.register_task("FaultMonitoring", 20);
-    perf_monitor.register_task("NavigationControl", 10);
-    perf_monitor.register_task("DataCollector", 1000);
-    perf_monitor.register_task("LocalInterface", 2000);
+    perf_monitor.register_task("SensorProcessing", SENSOR_PROCESSING_PERIOD_MS);
+    perf_monitor.register_task("CommandLogic", COMMAND_LOGIC_PERIOD_MS);
+    perf_monitor.register_task("FaultMonitoring", FAULT_MONITORING_PERIOD_MS);
+    perf_monitor.register_task("NavigationControl", NAVIGATION_CONTROL_PERIOD_MS);
+    perf_monitor.register_task("DataCollector", DATA_COLLECTOR_PERIOD_MS);
+    perf_monitor.register_task("LocalInterface", LOCAL_INTERFACE_PERIOD_MS);
 
-    LOG_INFO(MAIN) << "event" << "perf_monitor_init" << "tasks" << 6;
+    LOG_INFO(MAIN) << "event" << "perf_monitor_init" << "tasks" << NUMBER_OF_REGISTERED_TASKS_PERF;
 
     CircularBuffer buffer;
-    LOG_INFO(MAIN) << "event" << "buffer_create" << "size" << 200;
+    LOG_INFO(MAIN) << "event" << "buffer_create" << "size" << CIRCULAR_BUFFER_SIZE;
 
 
     LOG_DEBUG(MAIN) << "event" << "creating_tasks";
 
-    SensorProcessing sensor_task(buffer, 5, 20, &perf_monitor);
-    CommandLogic command_task(buffer, 10, &perf_monitor);
-    FaultMonitoring fault_task(buffer, 20, &perf_monitor);
-    NavigationControl nav_task(buffer, 10, &perf_monitor);
+    SensorProcessing sensor_task(buffer, SENSOR_FILTER_ORDER, SENSOR_PROCESSING_PERIOD_MS, &perf_monitor);
+    CommandLogic command_task(buffer, COMMAND_LOGIC_PERIOD_MS, &perf_monitor);
+    FaultMonitoring fault_task(buffer, FAULT_MONITORING_PERIOD_MS, &perf_monitor);
+    NavigationControl nav_task(buffer, NAVIGATION_CONTROL_PERIOD_MS, &perf_monitor);
     RoutePlanning route_planner;
-    DataCollector data_collector(buffer, 1, 1000, &perf_monitor);
-    LocalInterface local_interface(buffer, 2000, &perf_monitor);
+    DataCollector data_collector(buffer, TRUCK_ID, DATA_COLLECTOR_PERIOD_MS, &perf_monitor);
+    LocalInterface local_interface(buffer, LOCAL_INTERFACE_PERIOD_MS, &perf_monitor);
 
     LOG_DEBUG(MAIN) << "event" << "tasks_created";
 
-    // Create watchdog for fault tolerance monitoring
-    Watchdog watchdog(100);  // Check every 100ms
-    Watchdog::set_instance(&watchdog);  // Set global instance for task access
-    watchdog.register_task("SensorProcessing", 60);    // 3x period (20ms * 3)
-    watchdog.register_task("CommandLogic", 30);        // 3x period (10ms * 3)
-    watchdog.register_task("FaultMonitoring", 60);     // 3x period (20ms * 3)
-    watchdog.register_task("NavigationControl", 30);   // 3x period (10ms * 3)
-    watchdog.register_task("DataCollector", 3000);     // 3x period (1000ms * 3)
+    Watchdog watchdog(WATCHDOG_CHECK_PERIOD_MS);
+    Watchdog::set_instance(&watchdog);
+    watchdog.register_task("SensorProcessing", SENSOR_PROCESSING_WATCHDOG_TIMEOUT_MS);
+    watchdog.register_task("CommandLogic", COMMAND_LOGIC_WATCHDOG_TIMEOUT_MS);
+    watchdog.register_task("FaultMonitoring", FAULT_MONITORING_WATCHDOG_TIMEOUT_MS);
+    watchdog.register_task("NavigationControl", NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS);
+    watchdog.register_task("DataCollector", DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS);
 
     LOG_DEBUG(MAIN) << "event" << "watchdog_configured" << "tasks" << watchdog.get_task_count();
 
@@ -327,7 +338,7 @@ int main() {
     fault_task.start();
     nav_task.start();
     data_collector.start();
-    watchdog.start();  // Start watchdog monitoring
+    watchdog.start();
 
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -391,9 +402,8 @@ int main() {
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
 
-        // Publish actuator commands and truck state via MQTT bridge
-        write_actuator_commands_to_bridge(1, actuator_output);
-        write_truck_state_to_bridge(1, state);
+        write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
+        write_truck_state_to_bridge(TRUCK_ID, state);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

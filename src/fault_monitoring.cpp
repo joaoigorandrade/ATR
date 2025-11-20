@@ -27,17 +27,14 @@ void FaultMonitoring::start() {
     running_ = true;
     task_thread_ = std::thread(&FaultMonitoring::task_loop, this);
 
-    // Set real-time scheduling priority (highest priority for fault monitoring)
-    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
     pthread_t native_handle = task_thread_.native_handle();
     struct sched_param param;
-    param.sched_priority = 90; // Priority range: 1-99 (90 = highest for this system)
+    param.sched_priority = FAULT_MONITORING_THREAD_PRIORITY;
 
     int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
     if (result == 0) {
-        LOG_INFO(FM) << "event" << "start" << "rt_priority" << 90 << "sched" << "FIFO";
+        LOG_INFO(FM) << "event" << "start" << "rt_priority" << FAULT_MONITORING_THREAD_PRIORITY << "sched" << "FIFO";
     } else {
-        // Failed to set real-time priority (might need sudo/capabilities)
         LOG_WARN(FM) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
     }
 }
@@ -85,12 +82,10 @@ void FaultMonitoring::task_loop() {
             }
         }
 
-        // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("FaultMonitoring");
         }
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("FaultMonitoring", start_time);
         }
@@ -101,7 +96,7 @@ void FaultMonitoring::task_loop() {
 }
 
 FaultType FaultMonitoring::check_for_faults(const SensorData& data) {
-    if (data.temperature > 120) {
+    if (data.temperature > CRITICAL_TEMPERATURE_THRESHOLD_FM) {
         return FaultType::TEMPERATURE_CRITICAL;
     }
     if (data.fault_electrical) {
@@ -110,7 +105,7 @@ FaultType FaultMonitoring::check_for_faults(const SensorData& data) {
     if (data.fault_hydraulic) {
         return FaultType::HYDRAULIC;
     }
-    if (data.temperature > 95) {
+    if (data.temperature > ALERT_TEMPERATURE_THRESHOLD_FM) {
         return FaultType::TEMPERATURE_ALERT;
     }
 

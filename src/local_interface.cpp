@@ -75,7 +75,6 @@ void LocalInterface::task_loop() {
 
         display_status();
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("LocalInterface", start_time);
         }
@@ -106,7 +105,6 @@ void LocalInterface::display_status() {
             std::string val(env);
             return (val == "1" || val == "true" || val == "TRUE");
         }
-        // Default: AI mode (no visual UI)
         return false;
     }();
 

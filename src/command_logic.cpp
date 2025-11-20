@@ -31,15 +31,13 @@ void CommandLogic::start() {
     running_ = true;
     task_thread_ = std::thread(&CommandLogic::task_loop, this);
 
-    // Set real-time scheduling priority (high priority for command logic)
-    // SCHED_FIFO ensures deterministic scheduling for hard real-time requirements
     pthread_t native_handle = task_thread_.native_handle();
     struct sched_param param;
-    param.sched_priority = 80; // Priority: 80 (high, but lower than fault monitoring)
+    param.sched_priority = COMMAND_LOGIC_THREAD_PRIORITY;
 
     int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
     if (result == 0) {
-        LOG_INFO(CL) << "event" << "start" << "rt_priority" << 80 << "sched" << "FIFO";
+        LOG_INFO(CL) << "event" << "start" << "rt_priority" << COMMAND_LOGIC_THREAD_PRIORITY << "sched" << "FIFO";
     } else {
         LOG_WARN(CL) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
     }
@@ -115,12 +113,10 @@ void CommandLogic::task_loop() {
             calculate_actuator_outputs();
         }
 
-        // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("CommandLogic");
         }
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("CommandLogic", start_time);
         }
@@ -151,7 +147,7 @@ void CommandLogic::process_commands() {
 }
 
 bool CommandLogic::check_faults(const SensorData& data) {
-    if (data.temperature > 120) {
+    if (data.temperature > CRITICAL_TEMPERATURE_THRESHOLD) {
         return true;
     }
     if (data.fault_electrical || data.fault_hydraulic) {
@@ -175,16 +171,16 @@ void CommandLogic::calculate_actuator_outputs() {
         int steering_delta = pending_command_.steer_left - pending_command_.steer_right;
         actuator_output_.steering += steering_delta;
 
-        if (actuator_output_.steering > 180) {
-            actuator_output_.steering = 180;
-        } else if (actuator_output_.steering < -180) {
-            actuator_output_.steering = -180;
+        if (actuator_output_.steering > MAX_STEERING_ANGLE) {
+            actuator_output_.steering = MAX_STEERING_ANGLE;
+        } else if (actuator_output_.steering < MIN_STEERING_ANGLE) {
+            actuator_output_.steering = MIN_STEERING_ANGLE;
         }
 
-        if (actuator_output_.velocity > 100) {
-            actuator_output_.velocity = 100;
-        } else if (actuator_output_.velocity < -100) {
-            actuator_output_.velocity = -100;
+        if (actuator_output_.velocity > MAX_VELOCITY) {
+            actuator_output_.velocity = MAX_VELOCITY;
+        } else if (actuator_output_.velocity < MIN_VELOCITY) {
+            actuator_output_.velocity = MIN_VELOCITY;
         }
     }
 }

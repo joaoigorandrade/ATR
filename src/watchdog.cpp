@@ -2,14 +2,12 @@
 #include "logger.h"
 #include <algorithm>
 
-// Static instance pointer
 static Watchdog* g_watchdog_instance = nullptr;
 
 Watchdog::Watchdog(int check_period_ms)
     : check_period_ms_(check_period_ms),
       running_(false),
       fault_count_(0) {
-    // Set default fault handler
     fault_handler_ = std::bind(&Watchdog::default_fault_handler, this,
                                std::placeholders::_1, std::placeholders::_2);
 }
@@ -73,7 +71,6 @@ void Watchdog::heartbeat(const std::string& task_name) {
         it->second.ever_reported = true;
         it->second.consecutive_failures = 0;
 
-        // Only log heartbeat at DEBUG level to reduce noise
         static int heartbeat_count = 0;
         if (++heartbeat_count % 100 == 0) {
             LOG_DEBUG(MAIN) << "event" << "watchdog_heartbeat" << "task" << task_name << "count" << heartbeat_count;
@@ -96,40 +93,33 @@ void Watchdog::watchdog_loop() {
     auto next_check = std::chrono::steady_clock::now();
 
     while (running_) {
-        // Check all monitored tasks
         {
             std::lock_guard<std::mutex> lock(tasks_mutex_);
 
             for (auto& [task_name, info] : monitored_tasks_) {
                 if (is_timed_out(task_name, info)) {
-                    // Task has timed out
-                    auto now = std::chrono::steady_clock::now();
+                auto now = std::chrono::steady_clock::now();
                     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                         now - info.last_heartbeat).count();
 
-                    // Increment failure count
                     info.consecutive_failures++;
                     fault_count_++;
 
-                    // Call fault handler
                     if (fault_handler_) {
                         fault_handler_(task_name, elapsed);
                     }
 
-                    // Update last heartbeat to prevent repeated triggers
                     info.last_heartbeat = now;
                 }
             }
         }
 
-        // Sleep until next check
         next_check += std::chrono::milliseconds(check_period_ms_);
         std::this_thread::sleep_until(next_check);
     }
 }
 
 bool Watchdog::is_timed_out(const std::string& task_name, const TaskInfo& info) {
-    // Don't check until task has reported at least once
     if (!info.ever_reported) {
         return false;
     }

@@ -8,6 +8,14 @@
 #include <atomic>
 #include <mutex>
 
+constexpr int NAVIGATION_CONTROL_THREAD_PRIORITY = 70;
+constexpr int HALF_CIRCLE_DEG = 180;
+constexpr int FULL_CIRCLE_DEG = 360;
+constexpr int NEGATIVE_HALF_CIRCLE_DEG = -180;
+
+constexpr double ARRIVAL_RADIUS_UNITS = 5.0;
+constexpr double ALIGNMENT_THRESHOLD_DEG = 5.0;
+
 /**
  * @brief Navigation Control Task
  *
@@ -122,8 +130,6 @@ private:
 
     static constexpr int FIXED_SPEED = 30;
     static constexpr int ROTATION_SPEED = 40;
-    static constexpr double ARRIVAL_RADIUS = 5.0;
-    static constexpr double ALIGNMENT_THRESHOLD = 10.0;
 };
 
 #endif // NAVIGATION_CONTROL_H

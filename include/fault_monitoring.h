@@ -11,6 +11,10 @@
 #include <vector>
 #include <functional>
 
+constexpr int FAULT_MONITORING_THREAD_PRIORITY = 90;
+constexpr int CRITICAL_TEMPERATURE_THRESHOLD_FM = 120;
+constexpr int ALERT_TEMPERATURE_THRESHOLD_FM = 95;
+
 /**
  * @brief Fault event callback type
  *

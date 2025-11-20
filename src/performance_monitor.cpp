@@ -20,7 +20,6 @@ void PerformanceMonitor::register_task(const std::string& task_name, int expecte
 
 std::chrono::steady_clock::time_point PerformanceMonitor::start_measurement(
     const std::string& task_name) {
-    // No lock needed - just return current time
     return std::chrono::steady_clock::now();
 }
 
@@ -34,7 +33,6 @@ void PerformanceMonitor::end_measurement(const std::string& task_name,
 
     auto it = task_stats_.find(task_name);
     if (it == task_stats_.end()) {
-        // Task not registered - auto-register with 0 period
         LOG_WARN(MAIN) << "task" << task_name << "event" << "auto_register_perf";
         task_stats_[task_name] = TaskStats();
         it = task_stats_.find(task_name);
@@ -42,7 +40,6 @@ void PerformanceMonitor::end_measurement(const std::string& task_name,
 
     update_statistics(it->second, execution_us);
 
-    // Check for deadline violation
     long deadline_us = it->second.expected_period_ms * 1000;
     if (deadline_us > 0 && execution_us > deadline_us) {
         it->second.deadline_violations++;
@@ -57,7 +54,6 @@ void PerformanceMonitor::end_measurement(const std::string& task_name,
                        << "event" << "deadline_miss";
     }
 
-    // Log if execution time is unusually high (> 80% of period)
     if (deadline_us > 0 && execution_us > (deadline_us * 0.8)) {
         LOG_WARN(MAIN) << "task" << task_name << "exec_us" << execution_us
                        << "deadline_us" << deadline_us
@@ -70,7 +66,6 @@ void PerformanceMonitor::update_statistics(TaskStats& stats, long execution_us) 
     stats.current_execution_us = execution_us;
     stats.sample_count++;
 
-    // Update min/max
     if (execution_us < stats.min_execution_us) {
         stats.min_execution_us = execution_us;
     }
@@ -78,17 +73,14 @@ void PerformanceMonitor::update_statistics(TaskStats& stats, long execution_us) 
         stats.max_execution_us = execution_us;
     }
 
-    // Add to recent samples (sliding window)
     stats.recent_samples.push_back(execution_us);
     if (stats.recent_samples.size() > 100) {
         stats.recent_samples.erase(stats.recent_samples.begin());
     }
 
-    // Calculate running average (incremental formula)
     double delta = execution_us - stats.avg_execution_us;
     stats.avg_execution_us += delta / stats.sample_count;
 
-    // Calculate standard deviation from recent samples
     if (stats.recent_samples.size() >= 2) {
         stats.std_dev_us = calculate_std_dev(stats.recent_samples, stats.avg_execution_us);
     }
@@ -114,7 +106,7 @@ PerformanceMonitor::TaskStats PerformanceMonitor::get_stats(const std::string& t
         return it->second;
     }
 
-    return TaskStats(); // Return empty stats if not found
+    return TaskStats();
 }
 
 std::map<std::string, PerformanceMonitor::TaskStats> PerformanceMonitor::get_all_stats() const {
@@ -171,7 +163,6 @@ std::string PerformanceMonitor::get_report_string() const {
         return oss.str();
     }
 
-    // Header
     oss << std::left
         << std::setw(20) << "Task"
         << std::setw(10) << "Period"
@@ -186,7 +177,7 @@ std::string PerformanceMonitor::get_report_string() const {
 
     oss << std::string(110, '-') << "\n";
 
-    // Data rows
+    int total_violations = 0;
     for (const auto& pair : task_stats_) {
         const TaskStats& stats = pair.second;
 
@@ -209,12 +200,6 @@ std::string PerformanceMonitor::get_report_string() const {
     }
 
     oss << std::string(110, '-') << "\n";
-
-    // Summary
-    int total_violations = 0;
-    for (const auto& pair : task_stats_) {
-        total_violations += pair.second.deadline_violations;
-    }
 
     oss << "\nSummary:\n";
     oss << "  Total Tasks: " << task_stats_.size() << "\n";

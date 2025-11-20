@@ -113,12 +113,10 @@ void DataCollector::task_loop() {
                  sensor_data.position_y,
                  "Periodic status update");
 
-        // Report heartbeat to watchdog
         if (Watchdog::get_instance()) {
             Watchdog::get_instance()->heartbeat("DataCollector");
         }
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("DataCollector", start_time);
         }

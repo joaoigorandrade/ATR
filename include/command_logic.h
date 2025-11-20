@@ -8,6 +8,13 @@
 #include <atomic>
 #include <mutex>
 
+constexpr int COMMAND_LOGIC_THREAD_PRIORITY = 80;
+constexpr int CRITICAL_TEMPERATURE_THRESHOLD = 120;
+constexpr int MAX_STEERING_ANGLE = 180;
+constexpr int MIN_STEERING_ANGLE = -180;
+constexpr int MAX_VELOCITY = 100;
+constexpr int MIN_VELOCITY = -100;
+
 /**
  * @brief Command Logic Task
  *

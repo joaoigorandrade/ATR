@@ -36,10 +36,10 @@ void NavigationControl::start() {
     task_thread_ = std::thread(&NavigationControl::task_loop, this);
     pthread_t native_handle = task_thread_.native_handle();
     struct sched_param param;
-    param.sched_priority = 70;
+    param.sched_priority = NAVIGATION_CONTROL_THREAD_PRIORITY;
     int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
     if (result == 0) {
-        LOG_INFO(NC) << "event" << "start" << "rt_priority" << 70 << "sched" << "FIFO";
+        LOG_INFO(NC) << "event" << "start" << "rt_priority" << NAVIGATION_CONTROL_THREAD_PRIORITY << "sched" << "FIFO";
     } else {
         LOG_WARN(NC) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
     }
@@ -129,10 +129,10 @@ int NavigationControl::calculate_target_heading(int current_x, int current_y,
     int dy = target_y - current_y;
 
     double angle_rad = std::atan2(dy, dx);
-    int angle_deg = static_cast<int>(angle_rad * 180.0 / M_PI);
+    int angle_deg = static_cast<int>(angle_rad * HALF_CIRCLE_DEG / M_PI);
 
-    while (angle_deg < 0) angle_deg += 360;
-    while (angle_deg >= 360) angle_deg -= 360;
+    while (angle_deg < 0) angle_deg += FULL_CIRCLE_DEG;
+    while (angle_deg >= FULL_CIRCLE_DEG) angle_deg -= FULL_CIRCLE_DEG;
 
     return angle_deg;
 }
@@ -142,7 +142,7 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
     int dy = setpoint_.target_position_y - sensor_data.position_y;
     double distance = std::sqrt(dx*dx + dy*dy);
 
-    if (distance <= ARRIVAL_RADIUS) {
+    if (distance <= ARRIVAL_RADIUS_UNITS) {
         if (nav_state_ != NavState::ARRIVED) {
             nav_state_ = NavState::ARRIVED;
             output_.arrived = true;
@@ -160,8 +160,8 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
     );
 
     int heading_error = target_heading - sensor_data.angle_x;
-    while (heading_error > 180) heading_error -= 360;
-    while (heading_error < -180) heading_error += 360;
+    while (heading_error > HALF_CIRCLE_DEG) heading_error -= FULL_CIRCLE_DEG;
+    while (heading_error < NEGATIVE_HALF_CIRCLE_DEG) heading_error += FULL_CIRCLE_DEG;
 
     double abs_heading_error = std::abs(heading_error);
 
@@ -169,7 +169,7 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
         case NavState::ROTATING:
             output_.velocity = 0;
 
-            if (abs_heading_error <= ALIGNMENT_THRESHOLD) {
+            if (abs_heading_error <= ALIGNMENT_THRESHOLD_DEG) {
                 nav_state_ = NavState::MOVING;
                 LOG_INFO(NC) << "event" << "aligned"
                              << "heading_err" << static_cast<int>(abs_heading_error);
@@ -186,7 +186,7 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
             output_.velocity = FIXED_SPEED;
             output_.steering = 0;
 
-            if (abs_heading_error > ALIGNMENT_THRESHOLD * 2) {
+            if (abs_heading_error > ALIGNMENT_THRESHOLD_DEG * 2) {
                 nav_state_ = NavState::ROTATING;
                 LOG_INFO(NC) << "event" << "misaligned"
                              << "heading_err" << static_cast<int>(abs_heading_error);

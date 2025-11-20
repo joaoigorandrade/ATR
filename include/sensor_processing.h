@@ -7,6 +7,8 @@
 #include <atomic>
 #include <deque>
 
+constexpr int SENSOR_PROCESSING_THREAD_PRIORITY = 60;
+
 /**
  * @brief Raw sensor readings from the truck's sensors
  *

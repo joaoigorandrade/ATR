@@ -28,11 +28,11 @@ void SensorProcessing::start() {
     task_thread_ = std::thread(&SensorProcessing::task_loop, this);
     pthread_t native_handle = task_thread_.native_handle();
     struct sched_param param;
-    param.sched_priority = 60;
+    param.sched_priority = SENSOR_PROCESSING_THREAD_PRIORITY;
 
     int result = pthread_setschedparam(native_handle, SCHED_FIFO, &param);
     if (result == 0) {
-        LOG_INFO(SP) << "event" << "start" << "period_ms" << period_ms_ << "filter_order" << filter_order_ << "rt_priority" << 60 << "sched" << "FIFO";
+        LOG_INFO(SP) << "event" << "start" << "period_ms" << period_ms_ << "filter_order" << filter_order_ << "rt_priority" << SENSOR_PROCESSING_THREAD_PRIORITY << "sched" << "FIFO";
     } else {
         LOG_WARN(SP) << "event" << "start" << "rt_priority" << "failed" << "errno" << result;
     }
@@ -61,7 +61,6 @@ void SensorProcessing::task_loop() {
     auto next_execution = std::chrono::steady_clock::now();
 
     while (running_) {
-        // Measure execution time using RAII helper
         auto start_time = std::chrono::steady_clock::now();
 
         RawSensorData raw_data;
@@ -106,7 +105,6 @@ void SensorProcessing::task_loop() {
             Watchdog::get_instance()->heartbeat("SensorProcessing");
         }
 
-        // Record execution time
         if (perf_monitor_) {
             perf_monitor_->end_measurement("SensorProcessing", start_time);
         }
