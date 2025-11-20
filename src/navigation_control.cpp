@@ -143,13 +143,14 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
     double distance = std::sqrt(dx*dx + dy*dy);
 
     if (distance <= ARRIVAL_RADIUS) {
-        nav_state_ = NavState::ARRIVED;
-        output_.arrived = true;
+        if (nav_state_ != NavState::ARRIVED) {
+            nav_state_ = NavState::ARRIVED;
+            output_.arrived = true;
+            LOG_INFO(NC) << "event" << "arrived"
+                         << "dist" << static_cast<int>(distance);
+        }
         output_.velocity = 0;
         output_.steering = 0;
-
-        LOG_INFO(NC) << "event" << "arrived"
-                     << "dist" << static_cast<int>(distance);
         return;
     }
 

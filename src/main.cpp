@@ -268,10 +268,10 @@ int main() {
     global_perf_monitor = &perf_monitor;
 
     // Register tasks with expected periods
-    perf_monitor.register_task("SensorProcessing", 100);
-    perf_monitor.register_task("CommandLogic", 50);
-    perf_monitor.register_task("FaultMonitoring", 100);
-    perf_monitor.register_task("NavigationControl", 50);
+    perf_monitor.register_task("SensorProcessing", 20);
+    perf_monitor.register_task("CommandLogic", 10);
+    perf_monitor.register_task("FaultMonitoring", 20);
+    perf_monitor.register_task("NavigationControl", 10);
     perf_monitor.register_task("DataCollector", 1000);
     perf_monitor.register_task("LocalInterface", 2000);
 
@@ -283,10 +283,10 @@ int main() {
 
     LOG_DEBUG(MAIN) << "event" << "creating_tasks";
 
-    SensorProcessing sensor_task(buffer, 5, 100, &perf_monitor);
-    CommandLogic command_task(buffer, 50, &perf_monitor);
-    FaultMonitoring fault_task(buffer, 100, &perf_monitor);
-    NavigationControl nav_task(buffer, 50, &perf_monitor);
+    SensorProcessing sensor_task(buffer, 5, 20, &perf_monitor);
+    CommandLogic command_task(buffer, 10, &perf_monitor);
+    FaultMonitoring fault_task(buffer, 20, &perf_monitor);
+    NavigationControl nav_task(buffer, 10, &perf_monitor);
     RoutePlanning route_planner;
     DataCollector data_collector(buffer, 1, 1000, &perf_monitor);
     LocalInterface local_interface(buffer, 2000, &perf_monitor);
@@ -296,10 +296,10 @@ int main() {
     // Create watchdog for fault tolerance monitoring
     Watchdog watchdog(100);  // Check every 100ms
     Watchdog::set_instance(&watchdog);  // Set global instance for task access
-    watchdog.register_task("SensorProcessing", 300);   // 3x period (100ms * 3)
-    watchdog.register_task("CommandLogic", 150);       // 3x period (50ms * 3)
-    watchdog.register_task("FaultMonitoring", 300);    // 3x period (100ms * 3)
-    watchdog.register_task("NavigationControl", 150);  // 3x period (50ms * 3)
+    watchdog.register_task("SensorProcessing", 60);    // 3x period (20ms * 3)
+    watchdog.register_task("CommandLogic", 30);        // 3x period (10ms * 3)
+    watchdog.register_task("FaultMonitoring", 60);     // 3x period (20ms * 3)
+    watchdog.register_task("NavigationControl", 30);   // 3x period (10ms * 3)
     watchdog.register_task("DataCollector", 3000);     // 3x period (1000ms * 3)
 
     LOG_DEBUG(MAIN) << "event" << "watchdog_configured" << "tasks" << watchdog.get_task_count();
