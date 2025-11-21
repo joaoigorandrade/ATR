@@ -129,7 +129,6 @@ private:
     PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
 
     static constexpr int FIXED_SPEED = 30;
-    static constexpr int ROTATION_SPEED = 40;
 };
 
 #endif // NAVIGATION_CONTROL_H

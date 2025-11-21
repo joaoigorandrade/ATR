@@ -359,7 +359,7 @@ int main() {
             sensor_task.set_raw_data(current_data);
 
 
-            if (++bridge_read_count % 100 == 0) {
+            if (++bridge_read_count % 250 == 0) {
                 LOG_DEBUG(MAIN) << "event" << "sensor_update"
                                 << "temp" << bridge_data.temperature
                                 << "pos_x" << bridge_data.position_x
@@ -405,7 +405,7 @@ int main() {
         write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
         write_truck_state_to_bridge(TRUCK_ID, state);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
 

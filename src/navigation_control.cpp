@@ -70,6 +70,11 @@ void NavigationControl::set_setpoint(const NavigationSetpoint& setpoint) {
     if (new_target) {
         nav_state_ = NavState::ROTATING;
         output_.arrived = false;
+        LOG_INFO(NC) << "event" << "new_target"
+                     << "tgt_x" << setpoint_.target_position_x
+                     << "tgt_y" << setpoint_.target_position_y
+                     << "old_x" << setpoint.target_position_x
+                     << "old_y" << setpoint.target_position_y;
     }
 }
 
@@ -142,15 +147,29 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
     int dy = setpoint_.target_position_y - sensor_data.position_y;
     double distance = std::sqrt(dx*dx + dy*dy);
 
+    LOG_DEBUG(NC) << "event" << "nav_update"
+                  << "dist" << static_cast<int>(distance)
+                  << "cur_x" << sensor_data.position_x
+                  << "cur_y" << sensor_data.position_y
+                  << "tgt_x" << setpoint_.target_position_x
+                  << "tgt_y" << setpoint_.target_position_y
+                  << "state" << static_cast<int>(nav_state_);
+
     if (distance <= ARRIVAL_RADIUS_UNITS) {
         if (nav_state_ != NavState::ARRIVED) {
             nav_state_ = NavState::ARRIVED;
             output_.arrived = true;
             LOG_INFO(NC) << "event" << "arrived"
-                         << "dist" << static_cast<int>(distance);
+                         << "dist" << static_cast<int>(distance)
+                         << "cur_x" << sensor_data.position_x
+                         << "cur_y" << sensor_data.position_y
+                         << "tgt_x" << setpoint_.target_position_x
+                         << "tgt_y" << setpoint_.target_position_y;
         }
         output_.velocity = 0;
-        output_.steering = 0;
+        output_.steering = sensor_data.angle_x;
+        LOG_DEBUG(NC) << "event" << "hold_position"
+                      << "dist" << static_cast<int>(distance);
         return;
     }
 
@@ -165,37 +184,49 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
 
     double abs_heading_error = std::abs(heading_error);
 
+    LOG_DEBUG(NC) << "event" << "heading_calc"
+                  << "tgt_hdg" << target_heading
+                  << "cur_hdg" << sensor_data.angle_x
+                  << "hdg_err" << static_cast<int>(abs_heading_error)
+                  << "dist" << static_cast<int>(distance);
+
     switch (nav_state_) {
         case NavState::ROTATING:
             output_.velocity = 0;
+            output_.steering = target_heading;
+
+            LOG_DEBUG(NC) << "event" << "rotating"
+                          << "hdg_err" << static_cast<int>(abs_heading_error)
+                          << "tgt_hdg" << target_heading;
 
             if (abs_heading_error <= ALIGNMENT_THRESHOLD_DEG) {
                 nav_state_ = NavState::MOVING;
                 LOG_INFO(NC) << "event" << "aligned"
-                             << "heading_err" << static_cast<int>(abs_heading_error);
-            } else {
-                if (heading_error > 0) {
-                    output_.steering = ROTATION_SPEED;
-                } else {
-                    output_.steering = -ROTATION_SPEED;
-                }
+                             << "heading_err" << static_cast<int>(abs_heading_error)
+                             << "dist" << static_cast<int>(distance);
             }
             break;
 
         case NavState::MOVING:
             output_.velocity = FIXED_SPEED;
-            output_.steering = 0;
+            output_.steering = target_heading;
+
+            LOG_DEBUG(NC) << "event" << "moving"
+                          << "vel" << FIXED_SPEED
+                          << "hdg_err" << static_cast<int>(abs_heading_error)
+                          << "dist" << static_cast<int>(distance);
 
             if (abs_heading_error > ALIGNMENT_THRESHOLD_DEG * 2) {
                 nav_state_ = NavState::ROTATING;
                 LOG_INFO(NC) << "event" << "misaligned"
-                             << "heading_err" << static_cast<int>(abs_heading_error);
+                             << "heading_err" << static_cast<int>(abs_heading_error)
+                             << "dist" << static_cast<int>(distance);
             }
             break;
 
         case NavState::ARRIVED:
             output_.velocity = 0;
-            output_.steering = 0;
+            output_.steering = sensor_data.angle_x;
             break;
     }
 }

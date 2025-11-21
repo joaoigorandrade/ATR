@@ -85,14 +85,24 @@ class Truck:
         elif self.acceleration < 0:
             self.velocity += self.accel_rate * (self.acceleration / 100.0)
         else:
-            self.velocity *= self.friction
+            self.velocity = 0
 
         self.velocity = max(-self.max_speed, min(self.max_speed, self.velocity))
 
-        if abs(self.velocity) > 0.1:
-            turn_rate = 2.0 * (self.steering / 180.0)
-            self.angle += turn_rate
-            self.angle %= 360
+        target_angle = self.steering
+        angle_diff = target_angle - self.angle
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+
+        max_turn_rate = 5.0
+        if abs(angle_diff) > max_turn_rate:
+            self.angle += max_turn_rate if angle_diff > 0 else -max_turn_rate
+        else:
+            self.angle = target_angle
+
+        self.angle %= 360
 
         rad = math.radians(self.angle)
         self.x += self.velocity * math.cos(rad)
