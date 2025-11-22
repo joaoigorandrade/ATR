@@ -7,6 +7,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 constexpr int COMMAND_LOGIC_THREAD_PRIORITY = 80;
 constexpr int CRITICAL_TEMPERATURE_THRESHOLD = 120;
@@ -14,6 +15,7 @@ constexpr int MAX_STEERING_ANGLE = 180;
 constexpr int MIN_STEERING_ANGLE = -180;
 constexpr int MAX_VELOCITY = 100;
 constexpr int MIN_VELOCITY = -100;
+constexpr int MANUAL_MODE_TIMEOUT_MS = 1000;
 
 /**
  * @brief Command Logic Task
@@ -154,6 +156,8 @@ private:
 
     bool command_pending_;              // Flag for new command
     bool fault_rearmed_;                // Flag for fault rearm action
+
+    std::chrono::steady_clock::time_point last_command_time_; // Timestamp of last command
 
     PerformanceMonitor* perf_monitor_;  // Performance monitoring (optional)
 };

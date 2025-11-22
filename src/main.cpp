@@ -160,17 +160,31 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                 bool has_auto_mode = payload.contains("auto_mode");
                 bool has_manual_mode = payload.contains("manual_mode");
                 bool has_rearm = payload.contains("rearm");
+                bool has_accelerate = payload.contains("accelerate");
+                bool has_steer_left = payload.contains("steer_left");
+                bool has_steer_right = payload.contains("steer_right");
 
-                if (has_auto_mode || has_manual_mode || has_rearm) {
+                if (has_auto_mode || has_manual_mode || has_rearm ||
+                    has_accelerate || has_steer_left || has_steer_right) {
                     cmd.auto_mode = payload.value("auto_mode", false);
                     cmd.manual_mode = payload.value("manual_mode", false);
                     cmd.rearm = payload.value("rearm", false);
+                    cmd.accelerate = payload.value("accelerate", 0);
+                    cmd.steer_left = payload.value("steer_left", 0);
+                    cmd.steer_right = payload.value("steer_right", 0);
 
                     if (cmd.auto_mode || cmd.manual_mode || cmd.rearm) {
                         LOG_INFO(MAIN) << "event" << "cmd_recv"
                                        << "auto" << cmd.auto_mode
                                        << "manual" << cmd.manual_mode
                                        << "rearm" << cmd.rearm;
+                    }
+                    
+                    if (has_accelerate || has_steer_left || has_steer_right) {
+                         LOG_DEBUG(MAIN) << "event" << "cmd_manual" 
+                                         << "acc" << cmd.accelerate
+                                         << "left" << cmd.steer_left
+                                         << "right" << cmd.steer_right;
                     }
                     success = true;
                 }

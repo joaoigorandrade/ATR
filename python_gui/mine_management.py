@@ -127,12 +127,15 @@ class MineManagementGUI:
         self.canvas_items = {}
         self.waypoint_item_ids = None
 
+        self.last_key_time = 0
+
         self.setup_gui()
 
         if mqtt:
             self.setup_mqtt()
 
         self.update_gui()
+        self.check_heartbeat()
 
     def setup_gui(self):
         main_frame = ttk.Frame(self.root)
@@ -210,9 +213,14 @@ class MineManagementGUI:
         ttk.Button(mode_frame, text="Auto Mode", command=lambda: self.send_mode_command(True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(mode_frame, text="Rearm Fault", command=self.send_rearm_command).pack(side=tk.LEFT, padx=2)
 
+        ttk.Label(control_frame, text="Manual Controls: WASD / Arrows / Space", font=('Arial', 9, 'italic')).pack(pady=5)
+
         main_frame.columnconfigure(0, weight=2)
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(0, weight=1)
+
+        self.root.bind('<KeyPress>', self.on_key_press)
+        self.target_speed = 0
 
     def draw_grid(self):
         grid_size = GRID_SPACING_PIXELS / MAP_DISPLAY_SCALE
@@ -289,6 +297,11 @@ class MineManagementGUI:
             truck_id = int(selection.split()[1])
             self.selected_truck = truck_id
             self.last_info_text = ""
+            
+            if truck_id in self.trucks:
+                self.target_speed = self.trucks[truck_id].acceleration
+            else:
+                self.target_speed = 0
 
     def on_map_click(self, event):
         map_x = int(event.x * MAP_DISPLAY_SCALE)
@@ -354,6 +367,49 @@ class MineManagementGUI:
         self.mqtt_client.publish(topic, payload)
 
         print(f"[Management] Sent REARM command to Truck {self.selected_truck}")
+
+    def on_key_press(self, event):
+        if not self.selected_truck or not self.mqtt_connected:
+            return
+
+        truck = self.trucks.get(self.selected_truck)
+        if not truck or truck.mode == "AUTO":
+            return
+
+        self.last_key_time = time.time()
+        key = event.keysym
+        cmd_data = {}
+
+        if key == 'Up' or key == 'w':
+            self.target_speed = min(100, self.target_speed + 5)
+            cmd_data['accelerate'] = self.target_speed
+
+        elif key == 'Down' or key == 's':
+            self.target_speed = max(-100, self.target_speed - 5)
+            cmd_data['accelerate'] = self.target_speed
+
+        elif key == 'space':
+            self.target_speed = 0
+            cmd_data['accelerate'] = 0
+
+        elif key == 'Left' or key == 'a':
+            cmd_data['steer_left'] = 5
+            cmd_data['accelerate'] = self.target_speed
+
+        elif key == 'Right' or key == 'd':
+            cmd_data['steer_right'] = 5
+            cmd_data['accelerate'] = self.target_speed
+
+        if cmd_data:
+            self.send_manual_command(cmd_data)
+
+    def send_manual_command(self, data):
+        if not self.selected_truck:
+            return
+
+        topic = MQTT_TOPIC_COMMANDS.format(self.selected_truck)
+        payload = json.dumps(data)
+        self.mqtt_client.publish(topic, payload)
 
     def canvas_x(self, map_x):
         return map_x / MAP_DISPLAY_SCALE
@@ -602,6 +658,19 @@ class MineManagementGUI:
         self.draw_trucks()
         self.update_info_panel()
         self.root.after(GUI_UPDATE_PERIOD_MS, self.update_gui)
+
+    def check_heartbeat(self):
+        # Send heartbeat command every 200ms if idle to prevent timeout
+        if self.selected_truck and self.mqtt_connected:
+            truck = self.trucks.get(self.selected_truck)
+            if truck and truck.mode == "MANUAL":
+                idle_time = time.time() - self.last_key_time
+                if idle_time > 0.3:  # Only send if no key press for 300ms
+                    # Send current target speed to keep alive
+                    # Don't send steering (it will default to 0 in C++)
+                    self.send_manual_command({'accelerate': self.target_speed})
+        
+        self.root.after(200, self.check_heartbeat)
 
     def on_closing(self):
         if self.mqtt_client:

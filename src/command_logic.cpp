@@ -11,6 +11,7 @@ CommandLogic::CommandLogic(CircularBuffer& buffer, int period_ms, PerformanceMon
       running_(false),
       command_pending_(false),
       fault_rearmed_(false),
+      last_command_time_(std::chrono::steady_clock::now()),
       perf_monitor_(perf_monitor) {
     current_state_.fault = false;
     current_state_.automatic = false;
@@ -61,6 +62,7 @@ void CommandLogic::set_command(const OperatorCommand& cmd) {
     std::lock_guard<std::mutex> lock(state_mutex_);
     pending_command_ = cmd;
     command_pending_ = true;
+    last_command_time_ = std::chrono::steady_clock::now();
 }
 
 TruckState CommandLogic::get_state() const {
@@ -167,9 +169,20 @@ void CommandLogic::calculate_actuator_outputs() {
     if (current_state_.automatic) {
         actuator_output_ = navigation_output_;
     } else {
-        actuator_output_.velocity = pending_command_.accelerate;
-        int steering_delta = pending_command_.steer_left - pending_command_.steer_right;
-        actuator_output_.steering += steering_delta;
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_command_time_).count();
+
+        if (elapsed_ms > MANUAL_MODE_TIMEOUT_MS) {
+            actuator_output_.velocity = 0;
+        } else {
+            actuator_output_.velocity = pending_command_.accelerate;
+            int steering_delta = pending_command_.steer_left - pending_command_.steer_right;
+            actuator_output_.steering += steering_delta;
+            
+            // Reset steering commands to prevent runaway accumulation
+            pending_command_.steer_left = 0;
+            pending_command_.steer_right = 0;
+        }
 
         if (actuator_output_.steering > MAX_STEERING_ANGLE) {
             actuator_output_.steering = MAX_STEERING_ANGLE;
