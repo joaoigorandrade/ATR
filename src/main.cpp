@@ -25,7 +25,7 @@ constexpr int SENSOR_PROCESSING_PERIOD_MS = 20;
 constexpr int COMMAND_LOGIC_PERIOD_MS = 10;
 constexpr int FAULT_MONITORING_PERIOD_MS = 20;
 constexpr int NAVIGATION_CONTROL_PERIOD_MS = 10;
-constexpr int DATA_COLLECTOR_PERIOD_MS = 1000;
+constexpr int DATA_COLLECTOR_PERIOD_MS = 100;
 constexpr int LOCAL_INTERFACE_PERIOD_MS = 2000;
 constexpr int NUMBER_OF_REGISTERED_TASKS_PERF = 6;
 
@@ -36,7 +36,7 @@ constexpr int SENSOR_PROCESSING_WATCHDOG_TIMEOUT_MS = 60;
 constexpr int COMMAND_LOGIC_WATCHDOG_TIMEOUT_MS = 30;
 constexpr int FAULT_MONITORING_WATCHDOG_TIMEOUT_MS = 60;
 constexpr int NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS = 30;
-constexpr int DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS = 3000;
+constexpr int DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS = 300;
 
 constexpr int SENSOR_FILTER_ORDER = 5;
 constexpr int TRUCK_ID = 1;
@@ -361,7 +361,11 @@ int main() {
     last_state.automatic = false;
     last_state.fault = false;
 
+    int loop_counter = 0;
+    constexpr int STATE_UPDATE_INTERVAL = 4;
+
     while (system_running) {
+        loop_counter++;
 
         RawSensorData bridge_data;
         if (read_sensor_data_from_bridge(bridge_data)) {
@@ -412,15 +416,19 @@ int main() {
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
 
+        bool force_update = (loop_counter % STATE_UPDATE_INTERVAL == 0);
+
         if (actuator_output.velocity != last_actuator_output.velocity ||
             actuator_output.steering != last_actuator_output.steering ||
-            actuator_output.arrived != last_actuator_output.arrived) {
+            actuator_output.arrived != last_actuator_output.arrived ||
+            force_update) {
             write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
             last_actuator_output = actuator_output;
         }
 
         if (state.automatic != last_state.automatic ||
-            state.fault != last_state.fault) {
+            state.fault != last_state.fault ||
+            force_update) {
             write_truck_state_to_bridge(TRUCK_ID, state);
             last_state = state;
         }

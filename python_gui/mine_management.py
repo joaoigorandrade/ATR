@@ -84,6 +84,7 @@ class TruckData:
             self.steering = data['steering']
         if 'arrived' in data:
             self.arrived = data['arrived']
+        self.last_update = datetime.now()
         self.dirty = True
 
     def has_any_fault(self):
@@ -163,6 +164,9 @@ class MineManagementGUI:
 
         self.fps_label = ttk.Label(status_frame, text="FPS: 0.0")
         self.fps_label.pack()
+
+        self.avg_update_age_label = ttk.Label(status_frame, text="Avg Update Age: 0.0s")
+        self.avg_update_age_label.pack()
 
         select_frame = ttk.LabelFrame(right_frame, text="Truck Selection", padding=10)
         select_frame.pack(fill=tk.X, pady=5)
@@ -577,6 +581,23 @@ class MineManagementGUI:
             if time_span > 0:
                 self.fps = (len(self.frame_times) - 1) / time_span
                 self.fps_label.config(text=f"FPS: {self.fps:.1f}")
+
+        if self.trucks:
+            now = datetime.now()
+            total_age = 0
+            count = 0
+            for truck in self.trucks.values():
+                if truck.last_update:
+                    age = (now - truck.last_update).total_seconds()
+                    total_age += age
+                    count += 1
+            if count > 0:
+                avg_age = total_age / count
+                color = "green" if avg_age < 0.1 else ("orange" if avg_age < 0.5 else "red")
+                self.avg_update_age_label.config(
+                    text=f"Avg Update Age: {avg_age:.3f}s",
+                    foreground=color
+                )
 
         self.draw_trucks()
         self.update_info_panel()

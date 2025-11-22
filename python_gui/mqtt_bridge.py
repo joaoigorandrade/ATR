@@ -126,8 +126,14 @@ class MQTTBridge:
     def check_outgoing_messages(self):
         """Check for messages from C++ to publish via MQTT"""
         try:
-            # Look for JSON files written by C++
-            json_files = glob.glob(os.path.join(TO_MQTT_DIR, "*.json"))
+            json_files = []
+            try:
+                with os.scandir(TO_MQTT_DIR) as entries:
+                    for entry in entries:
+                        if entry.name.endswith('.json') and entry.is_file():
+                            json_files.append(entry.path)
+            except FileNotFoundError:
+                return
 
             for filepath in json_files:
                 try:
@@ -167,11 +173,9 @@ class MQTTBridge:
 
         try:
             while self.running:
-                # Check for outgoing messages from C++
                 self.check_outgoing_messages()
 
-                # Sleep briefly
-                time.sleep(0.1)
+                time.sleep(0.01)
 
         except KeyboardInterrupt:
             print("\n[Bridge] Shutting down...")
