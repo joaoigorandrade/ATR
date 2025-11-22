@@ -187,6 +187,22 @@ class MineManagementGUI:
         control_frame = ttk.LabelFrame(right_frame, text="Truck Control", padding=10)
         control_frame.pack(fill=tk.X, pady=5)
 
+        # Dashboard display
+        dash_frame = ttk.Frame(control_frame)
+        dash_frame.pack(fill=tk.X, pady=5)
+        
+        v_frame = ttk.Frame(dash_frame)
+        v_frame.pack(side=tk.LEFT, expand=True)
+        ttk.Label(v_frame, text="Velocity").pack()
+        self.lbl_velocity = ttk.Label(v_frame, text="0%", font=('Arial', 14, 'bold'))
+        self.lbl_velocity.pack()
+        
+        s_frame = ttk.Frame(dash_frame)
+        s_frame.pack(side=tk.LEFT, expand=True)
+        ttk.Label(s_frame, text="Steering").pack()
+        self.lbl_steering = ttk.Label(s_frame, text="0°", font=('Arial', 14, 'bold'))
+        self.lbl_steering.pack()
+
         waypoint_frame = ttk.Frame(control_frame)
         waypoint_frame.pack(fill=tk.X, pady=5)
 
@@ -616,10 +632,20 @@ class MineManagementGUI:
                 self.info_text.insert('1.0', "No truck selected")
                 self.info_text.config(state='disabled')
                 self.last_info_text = "No truck selected"
+                
+                # Reset dashboard
+                if hasattr(self, 'lbl_velocity'):
+                    self.lbl_velocity.config(text="-")
+                    self.lbl_steering.config(text="-")
             return
 
         truck = self.trucks[self.selected_truck]
         new_info = self.format_truck_info(truck)
+        
+        # Update dashboard
+        if hasattr(self, 'lbl_velocity'):
+            self.lbl_velocity.config(text=f"{truck.acceleration}%")
+            self.lbl_steering.config(text=f"{truck.steering}°")
 
         if new_info != self.last_info_text:
             self.info_text.config(state='normal')
