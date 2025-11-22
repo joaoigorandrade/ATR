@@ -6,6 +6,8 @@
 #include <fstream>
 #include <filesystem>
 #include <string>
+#include <vector>
+#include <algorithm>
 #include "logger.h"
 #include "circular_buffer.h"
 #include "sensor_processing.h"
@@ -63,37 +65,57 @@ void signal_handler(int signal) {
 
 bool read_sensor_data_from_bridge(RawSensorData& data) {
     const std::string bridge_dir = "bridge/from_mqtt";
+    std::vector<fs::path> sensor_files;
 
     try {
         if (!fs::exists(bridge_dir)) {
             return false;
         }
 
+        // Collect all sensor files
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
                 entry.path().filename().string().find("sensors") != std::string::npos) {
-
-                std::ifstream file(entry.path());
-                if (!file.is_open()) continue;
-
-                json j = json::parse(file);
-                file.close();
-
-                if (j.contains("payload")) {
-                    auto& payload = j["payload"];
-                    data.position_x = payload.value("position_x", 0);
-                    data.position_y = payload.value("position_y", 0);
-                    data.angle_x = payload.value("angle_x", 0);
-                    data.temperature = payload.value("temperature", 0);
-                    data.fault_electrical = payload.value("fault_electrical", false);
-                    data.fault_hydraulic = payload.value("fault_hydraulic", false);
-                }
-
-                fs::remove(entry.path());
-                return true;
+                sensor_files.push_back(entry.path());
             }
         }
+
+        if (sensor_files.empty()) {
+            return false;
+        }
+
+    
+        std::sort(sensor_files.begin(), sensor_files.end());
+
+        
+        bool success = false;
+        const auto& newest_file = sensor_files.back();
+
+        std::ifstream file(newest_file);
+        if (file.is_open()) {
+            json j = json::parse(file);
+            file.close();
+
+            if (j.contains("payload")) {
+                auto& payload = j["payload"];
+                data.position_x = payload.value("position_x", 0);
+                data.position_y = payload.value("position_y", 0);
+                data.angle_x = payload.value("angle_x", 0);
+                data.temperature = payload.value("temperature", 0);
+                data.fault_electrical = payload.value("fault_electrical", false);
+                data.fault_hydraulic = payload.value("fault_hydraulic", false);
+                success = true;
+            }
+        }
+
+        for (const auto& path : sensor_files) {
+            fs::remove(path);
+        }
+
+        return success;
+
     } catch (const std::exception& e) {
+        // Log error if needed
     }
 
     return false;
@@ -102,6 +124,7 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
 
 bool read_commands_from_bridge(OperatorCommand& cmd) {
     const std::string bridge_dir = "bridge/from_mqtt";
+    std::vector<fs::path> command_files;
 
     try {
         if (!fs::exists(bridge_dir)) {
@@ -111,25 +134,34 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
                 entry.path().filename().string().find("commands") != std::string::npos) {
+                command_files.push_back(entry.path());
+            }
+        }
 
-                std::ifstream file(entry.path());
-                if (!file.is_open()) continue;
+        if (command_files.empty()) {
+            return false;
+        }
 
-                json j = json::parse(file);
-                file.close();
+    
+        std::sort(command_files.begin(), command_files.end());
 
-                if (j.contains("payload")) {
-                    auto& payload = j["payload"];
+    
+        bool success = false;
+        const auto& newest_file = command_files.back();
 
-                    bool has_auto_mode = payload.contains("auto_mode");
-                    bool has_manual_mode = payload.contains("manual_mode");
-                    bool has_rearm = payload.contains("rearm");
+        std::ifstream file(newest_file);
+        if (file.is_open()) {
+            json j = json::parse(file);
+            file.close();
 
-                    if (!has_auto_mode && !has_manual_mode && !has_rearm) {
-                        fs::remove(entry.path());
-                        continue;
-                    }
+            if (j.contains("payload")) {
+                auto& payload = j["payload"];
 
+                bool has_auto_mode = payload.contains("auto_mode");
+                bool has_manual_mode = payload.contains("manual_mode");
+                bool has_rearm = payload.contains("rearm");
+
+                if (has_auto_mode || has_manual_mode || has_rearm) {
                     cmd.auto_mode = payload.value("auto_mode", false);
                     cmd.manual_mode = payload.value("manual_mode", false);
                     cmd.rearm = payload.value("rearm", false);
@@ -140,13 +172,19 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
                                        << "manual" << cmd.manual_mode
                                        << "rearm" << cmd.rearm;
                     }
+                    success = true;
                 }
-
-                fs::remove(entry.path());
-                return true;
             }
         }
+
+        for (const auto& path : command_files) {
+            fs::remove(path);
+        }
+
+        return success;
+
     } catch (const std::exception& e) {
+        // Log error
     }
 
     return false;
@@ -155,6 +193,7 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
 
 bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
     const std::string bridge_dir = "bridge/from_mqtt";
+    std::vector<fs::path> setpoint_files;
 
     try {
         if (!fs::exists(bridge_dir)) {
@@ -164,31 +203,48 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
                 entry.path().filename().string().find("setpoint") != std::string::npos) {
+                setpoint_files.push_back(entry.path());
+            }
+        }
 
-                std::ifstream file(entry.path());
-                if (!file.is_open()) continue;
+        if (setpoint_files.empty()) {
+            return false;
+        }
 
-                json j = json::parse(file);
-                file.close();
+        
+        std::sort(setpoint_files.begin(), setpoint_files.end());
 
-                if (j.contains("payload")) {
-                    auto& payload = j["payload"];
-                    setpoint.target_position_x = payload.value("target_x", 0);
-                    setpoint.target_position_y = payload.value("target_y", 0);
-                    setpoint.target_speed = payload.value("target_speed", 0);
-                }
+        
+        bool success = false;
+        const auto& newest_file = setpoint_files.back();
 
-                fs::remove(entry.path());
+        std::ifstream file(newest_file);
+        if (file.is_open()) {
+            json j = json::parse(file);
+            file.close();
 
+            if (j.contains("payload")) {
+                auto& payload = j["payload"];
+                setpoint.target_position_x = payload.value("target_x", 0);
+                setpoint.target_position_y = payload.value("target_y", 0);
+                setpoint.target_speed = payload.value("target_speed", 0);
+                
                 LOG_INFO(MAIN) << "event" << "setpoint_recv"
                                << "tgt_x" << setpoint.target_position_x
                                << "tgt_y" << setpoint.target_position_y
                                << "speed" << setpoint.target_speed;
-
-                return true;
+                success = true;
             }
         }
+
+        for (const auto& path : setpoint_files) {
+            fs::remove(path);
+        }
+
+        return success;
+
     } catch (const std::exception& e) {
+        // Log error
     }
 
     return false;
