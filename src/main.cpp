@@ -351,6 +351,16 @@ int main() {
 
     RawSensorData current_data = initial_data;
     int bridge_read_count = 0;
+
+    ActuatorOutput last_actuator_output{};
+    last_actuator_output.velocity = -999;
+    last_actuator_output.steering = -999;
+    last_actuator_output.arrived = false;
+
+    TruckState last_state{};
+    last_state.automatic = false;
+    last_state.fault = false;
+
     while (system_running) {
 
         RawSensorData bridge_data;
@@ -402,10 +412,20 @@ int main() {
         ActuatorOutput actuator_output = command_task.get_actuator_output();
         local_interface.set_actuator_output(actuator_output);
 
-        write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
-        write_truck_state_to_bridge(TRUCK_ID, state);
+        if (actuator_output.velocity != last_actuator_output.velocity ||
+            actuator_output.steering != last_actuator_output.steering ||
+            actuator_output.arrived != last_actuator_output.arrived) {
+            write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
+            last_actuator_output = actuator_output;
+        }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (state.automatic != last_state.automatic ||
+            state.fault != last_state.fault) {
+            write_truck_state_to_bridge(TRUCK_ID, state);
+            last_state = state;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
 

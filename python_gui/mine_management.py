@@ -1,24 +1,10 @@
 #!/usr/bin/env python3
-"""
-Mine Management GUI
-
-Supervisory control interface for monitoring and managing all trucks:
-- Real-time map showing all truck positions
-- Display truck states, telemetry, and faults
-- Set waypoint targets for each truck
-- Send commands to trucks (mode changes)
-- MQTT subscriber for truck data
-
-Real-Time Automation Concepts:
-- Supervisory control and data acquisition (SCADA)
-- MQTT pub/sub for distributed systems
-- Real-time monitoring and control
-"""
 
 import tkinter as tk
 from tkinter import ttk
 import json
 import math
+import time
 from datetime import datetime
 from collections import deque
 
@@ -28,21 +14,32 @@ except ImportError:
     print("Warning: paho-mqtt not installed. Install with: pip install paho-mqtt")
     mqtt = None
 
-# MQTT Configuration
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
+MQTT_BROKER_HOST = "localhost"
+MQTT_BROKER_PORT = 1883
 MQTT_TOPIC_SENSORS = "truck/+/sensors"
 MQTT_TOPIC_STATE = "truck/+/state"
 MQTT_TOPIC_COMMANDS = "truck/{}/commands"
 MQTT_TOPIC_SETPOINT = "truck/{}/setpoint"
 
-# Map dimensions (matching simulation)
-MAP_WIDTH = 1000
-MAP_HEIGHT = 700
+MAP_WIDTH_PIXELS = 1000
+MAP_HEIGHT_PIXELS = 700
+MAP_DISPLAY_SCALE = 1.5
+GRID_SPACING_PIXELS = 100
+
+TEMPERATURE_WARNING_THRESHOLD = 95
+TEMPERATURE_CRITICAL_THRESHOLD = 120
+
+POSITION_HISTORY_SIZE = 20
+GUI_UPDATE_PERIOD_MS = 50
+
+TRUCK_DISPLAY_SIZE = 15
+DIRECTION_INDICATOR_LENGTH = 20
+WAYPOINT_DISPLAY_RADIUS = 8
+
+DEFAULT_TARGET_SPEED = 50
+
 
 class TruckData:
-    """Stores data for a single truck"""
-
     def __init__(self, truck_id):
         self.id = truck_id
         self.position_x = 0
@@ -51,21 +48,18 @@ class TruckData:
         self.temperature = 0
         self.fault_electrical = False
         self.fault_hydraulic = False
-        self.mode = "MANUAL"  # Default to MANUAL instead of UNKNOWN
+        self.mode = "MANUAL"
         self.fault_state = False
         self.last_update = None
-        self.last_sensor_update = None
-        self.last_command_update = None
-        self.history = deque(maxlen=50)  # Position history for trail
-        self.dirty = True  # Track if data changed since last render
+        self.position_history = deque(maxlen=POSITION_HISTORY_SIZE)
 
-        # Track actuator outputs and arrival status
         self.acceleration = 0
         self.steering = 0
         self.arrived = False
+        
+        self.dirty = True
 
     def update_sensors(self, data):
-        """Update from sensor data"""
         self.position_x = data.get('position_x', 0)
         self.position_y = data.get('position_y', 0)
         self.angle = data.get('angle_x', 0)
@@ -73,95 +67,91 @@ class TruckData:
         self.fault_electrical = data.get('fault_electrical', False)
         self.fault_hydraulic = data.get('fault_hydraulic', False)
         self.last_update = datetime.now()
-        self.last_sensor_update = datetime.now()
 
-        # Add to history
-        self.history.append((self.position_x, self.position_y))
-        self.dirty = True  # Mark as changed
+        self.position_history.append((self.position_x, self.position_y))
+        self.dirty = True
 
     def update_state(self, data):
-        """Update from state data"""
         self.mode = "AUTO" if data.get('automatic', False) else "MANUAL"
         self.fault_state = data.get('fault', False)
         self.last_update = datetime.now()
-        self.dirty = True  # Mark as changed
+        self.dirty = True
 
     def update_commands(self, data):
-        """Update from command/actuator data"""
-        # Track actuator outputs
         if 'acceleration' in data:
-            self.acceleration = data.get('acceleration', 0)
+            self.acceleration = data['acceleration']
         if 'steering' in data:
-            self.steering = data.get('steering', 0)
+            self.steering = data['steering']
         if 'arrived' in data:
-            self.arrived = data.get('arrived', False)
-
-        # Infer mode from actuator activity if state messages aren't received
-        # If we're getting non-zero commands, we're likely in AUTO mode
-        if self.acceleration != 0 or self.steering != 0:
-            if self.mode == "MANUAL":  # Only update if not already set by state message
-                recent_state = self.last_update and (datetime.now() - self.last_update).total_seconds() < 2
-                if not recent_state:
-                    self.mode = "AUTO"
-
-        self.last_command_update = datetime.now()
+            self.arrived = data['arrived']
         self.dirty = True
 
     def has_any_fault(self):
-        """Check if truck has any fault"""
-        return self.fault_state or self.fault_electrical or self.fault_hydraulic or self.temperature > 120
+        return (self.fault_state or
+                self.fault_electrical or
+                self.fault_hydraulic or
+                self.temperature > TEMPERATURE_CRITICAL_THRESHOLD)
+
+    def is_temperature_warning(self):
+        return self.temperature > TEMPERATURE_WARNING_THRESHOLD
+
+    def get_display_color(self):
+        if self.has_any_fault():
+            return 'red'
+        if self.is_temperature_warning():
+            return 'orange'
+        if self.mode == "AUTO":
+            return 'green'
+        return 'blue'
+
 
 class MineManagementGUI:
-    """Main management GUI application"""
-
     def __init__(self, root):
         self.root = root
         self.root.title("Mine Management - Stage 2")
         self.root.geometry("1400x800")
 
-        # Data
-        self.trucks = {}  # truck_id -> TruckData
+        self.trucks = {}
         self.selected_truck = None
         self.target_waypoint = None
-        self.waypoint_dirty = False  # Track waypoint changes
 
-        # MQTT
+        self.last_info_text = ""
+        self.waypoint_dirty = False
+        self.frame_times = deque(maxlen=30)
+        self.fps = 0.0
+
         self.mqtt_client = None
         self.mqtt_connected = False
 
-        # Setup GUI
+        self.canvas_items = {}
+        self.waypoint_item_ids = None
+
         self.setup_gui()
 
-        # Setup MQTT
         if mqtt:
             self.setup_mqtt()
 
-        # Start update loop
         self.update_gui()
 
     def setup_gui(self):
-        """Initialize GUI components"""
-        # Main layout: left panel (map), right panel (controls)
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Left panel: Map
         left_frame = ttk.LabelFrame(main_frame, text="Mine Map", padding=10)
         left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
 
-        self.canvas = tk.Canvas(left_frame, width=MAP_WIDTH//1.5, height=MAP_HEIGHT//1.5,
+        canvas_width = int(MAP_WIDTH_PIXELS / MAP_DISPLAY_SCALE)
+        canvas_height = int(MAP_HEIGHT_PIXELS / MAP_DISPLAY_SCALE)
+        self.canvas = tk.Canvas(left_frame, width=canvas_width, height=canvas_height,
                                bg='#2C2C2C', highlightthickness=1, highlightbackground='gray')
         self.canvas.pack()
         self.canvas.bind('<Button-1>', self.on_map_click)
 
-        # Draw grid
         self.draw_grid()
 
-        # Right panel: Controls and Info
         right_frame = ttk.Frame(main_frame)
         right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
 
-        # Status panel
         status_frame = ttk.LabelFrame(right_frame, text="System Status", padding=10)
         status_frame.pack(fill=tk.X, pady=5)
 
@@ -171,7 +161,9 @@ class MineManagementGUI:
         self.truck_count_label = ttk.Label(status_frame, text="Trucks: 0")
         self.truck_count_label.pack()
 
-        # Truck selection
+        self.fps_label = ttk.Label(status_frame, text="FPS: 0.0")
+        self.fps_label.pack()
+
         select_frame = ttk.LabelFrame(right_frame, text="Truck Selection", padding=10)
         select_frame.pack(fill=tk.X, pady=5)
 
@@ -179,18 +171,15 @@ class MineManagementGUI:
         self.truck_combo.pack()
         self.truck_combo.bind('<<ComboboxSelected>>', self.on_truck_selected)
 
-        # Truck info panel
         info_frame = ttk.LabelFrame(right_frame, text="Truck Information", padding=10)
         info_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
         self.info_text = tk.Text(info_frame, height=15, width=35, state='disabled')
         self.info_text.pack(fill=tk.BOTH, expand=True)
 
-        # Control panel
         control_frame = ttk.LabelFrame(right_frame, text="Truck Control", padding=10)
         control_frame.pack(fill=tk.X, pady=5)
 
-        # Waypoint controls
         waypoint_frame = ttk.Frame(control_frame)
         waypoint_frame.pack(fill=tk.X, pady=5)
 
@@ -210,7 +199,6 @@ class MineManagementGUI:
 
         ttk.Button(control_frame, text="Send Waypoint", command=self.send_waypoint).pack(pady=5)
 
-        # Mode control
         mode_frame = ttk.Frame(control_frame)
         mode_frame.pack(fill=tk.X, pady=5)
 
@@ -218,80 +206,70 @@ class MineManagementGUI:
         ttk.Button(mode_frame, text="Auto Mode", command=lambda: self.send_mode_command(True)).pack(side=tk.LEFT, padx=2)
         ttk.Button(mode_frame, text="Rearm Fault", command=self.send_rearm_command).pack(side=tk.LEFT, padx=2)
 
-        # Configure grid weights
         main_frame.columnconfigure(0, weight=2)
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(0, weight=1)
 
     def draw_grid(self):
-        """Draw grid on map canvas"""
-        scale = 1.5
-        grid_size = 100 / scale
+        grid_size = GRID_SPACING_PIXELS / MAP_DISPLAY_SCALE
+        canvas_width = int(MAP_WIDTH_PIXELS / MAP_DISPLAY_SCALE)
+        canvas_height = int(MAP_HEIGHT_PIXELS / MAP_DISPLAY_SCALE)
 
-        for x in range(0, int(MAP_WIDTH//scale), int(grid_size)):
-            self.canvas.create_line(x, 0, x, MAP_HEIGHT//scale, fill='#404040', dash=(2, 4))
+        for x in range(0, canvas_width, int(grid_size)):
+            self.canvas.create_line(x, 0, x, canvas_height, fill='#404040', dash=(2, 4))
 
-        for y in range(0, int(MAP_HEIGHT//scale), int(grid_size)):
-            self.canvas.create_line(0, y, MAP_WIDTH//scale, y, fill='#404040', dash=(2, 4))
+        for y in range(0, canvas_height, int(grid_size)):
+            self.canvas.create_line(0, y, canvas_width, y, fill='#404040', dash=(2, 4))
 
     def setup_mqtt(self):
-        """Initialize MQTT connection"""
         try:
             self.mqtt_client = mqtt.Client(client_id="mine_management")
             self.mqtt_client.on_connect = self.on_mqtt_connect
             self.mqtt_client.on_message = self.on_mqtt_message
 
-            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            self.mqtt_client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
             self.mqtt_client.loop_start()
-            print(f"[MQTT] Connecting to broker at {MQTT_BROKER}:{MQTT_PORT}")
+            print(f"[MQTT] Connecting to broker at {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
         except Exception as e:
             print(f"[MQTT] Connection failed: {e}")
             self.status_label.config(text=f"MQTT: Error - {e}", foreground="red")
 
     def on_mqtt_connect(self, client, userdata, flags, rc):
-        """MQTT connection callback"""
         if rc == 0:
             self.mqtt_connected = True
             print("[MQTT] Connected successfully")
             self.status_label.config(text="MQTT: Connected", foreground="green")
 
-            # Subscribe to all truck topics (sensors, state, and commands)
             client.subscribe(MQTT_TOPIC_SENSORS)
             client.subscribe(MQTT_TOPIC_STATE)
-            client.subscribe(MQTT_TOPIC_COMMANDS.format("+"))  # Subscribe to all truck commands
+            client.subscribe(MQTT_TOPIC_COMMANDS.format("+"))
             print("[MQTT] Subscribed to truck topics (sensors, state, commands)")
         else:
             print(f"[MQTT] Connection failed with code {rc}")
             self.status_label.config(text=f"MQTT: Failed (code {rc})", foreground="red")
 
     def on_mqtt_message(self, client, userdata, msg):
-        """MQTT message callback"""
         try:
             topic_parts = msg.topic.split('/')
             truck_id = int(topic_parts[1])
 
-            # Ensure truck exists
             if truck_id not in self.trucks:
                 self.trucks[truck_id] = TruckData(truck_id)
-                self.update_truck_list()
+                self.root.after_idle(self.update_truck_list)
 
-            # Parse data
             data = json.loads(msg.payload.decode())
 
-            # Update appropriate data
             if 'sensors' in msg.topic:
                 self.trucks[truck_id].update_sensors(data)
             elif 'state' in msg.topic:
                 self.trucks[truck_id].update_state(data)
             elif 'commands' in msg.topic:
-                # This receives actuator commands (acceleration, steering, arrived)
                 self.trucks[truck_id].update_commands(data)
 
         except Exception as e:
             print(f"[MQTT] Error processing message: {e}")
 
     def update_truck_list(self):
-        """Update truck selection combobox"""
         truck_ids = [f"Truck {tid}" for tid in sorted(self.trucks.keys())]
         self.truck_combo['values'] = truck_ids
 
@@ -302,18 +280,15 @@ class MineManagementGUI:
         self.truck_count_label.config(text=f"Trucks: {len(self.trucks)}")
 
     def on_truck_selected(self, event):
-        """Handle truck selection"""
         selection = self.truck_combo.get()
         if selection:
             truck_id = int(selection.split()[1])
             self.selected_truck = truck_id
+            self.last_info_text = ""
 
     def on_map_click(self, event):
-        """Handle map click for waypoint setting"""
-        # Convert canvas coordinates to map coordinates
-        scale = 1.5
-        map_x = int(event.x * scale)
-        map_y = int(event.y * scale)
+        map_x = int(event.x * MAP_DISPLAY_SCALE)
+        map_y = int(event.y * MAP_DISPLAY_SCALE)
 
         self.waypoint_x.delete(0, tk.END)
         self.waypoint_x.insert(0, str(map_x))
@@ -324,7 +299,6 @@ class MineManagementGUI:
         self.waypoint_dirty = True
 
     def send_waypoint(self):
-        """Send waypoint to selected truck"""
         if not self.selected_truck or not self.mqtt_connected:
             return
 
@@ -335,7 +309,7 @@ class MineManagementGUI:
             setpoint_data = {
                 "target_x": x,
                 "target_y": y,
-                "target_speed": 50
+                "target_speed": DEFAULT_TARGET_SPEED
             }
 
             topic = MQTT_TOPIC_SETPOINT.format(self.selected_truck)
@@ -350,7 +324,6 @@ class MineManagementGUI:
             print("[Management] Invalid waypoint coordinates")
 
     def send_mode_command(self, automatic):
-        """Send mode change command"""
         if not self.selected_truck or not self.mqtt_connected:
             return
 
@@ -367,13 +340,10 @@ class MineManagementGUI:
         print(f"[Management] Sent {mode_str} mode command to Truck {self.selected_truck}")
 
     def send_rearm_command(self):
-        """Send fault rearm command"""
         if not self.selected_truck or not self.mqtt_connected:
             return
 
-        command_data = {
-            "rearm": True
-        }
+        command_data = {"rearm": True}
 
         topic = MQTT_TOPIC_COMMANDS.format(self.selected_truck)
         payload = json.dumps(command_data)
@@ -381,138 +351,243 @@ class MineManagementGUI:
 
         print(f"[Management] Sent REARM command to Truck {self.selected_truck}")
 
-    def draw_trucks(self):
-        """Draw all trucks on map"""
-        # Always redraw for smooth updates (canvas operations are lightweight)
-        # Clear only what needs to be redrawn
-        self.canvas.delete('truck')
-        self.canvas.delete('trail')
-        self.canvas.delete('waypoint')
+    def canvas_x(self, map_x):
+        return map_x / MAP_DISPLAY_SCALE
 
-        scale = 1.5
+    def canvas_y(self, map_y):
+        return map_y / MAP_DISPLAY_SCALE
 
-        # Draw waypoint if set
-        if self.target_waypoint:
-            wx, wy = self.target_waypoint
-            cx = wx / scale
-            cy = wy / scale
-            self.canvas.create_oval(cx-8, cy-8, cx+8, cy+8,
-                                   fill='yellow', outline='orange', width=2, tags='waypoint')
-            self.canvas.create_text(cx, cy-15, text="TARGET", fill='yellow',
-                                   font=('Arial', 10, 'bold'), tags='waypoint')
+    def draw_waypoint(self):
+        if not self.waypoint_dirty:
+            return
 
-        # Draw trucks
-        for truck in self.trucks.values():
-            x = truck.position_x / scale
-            y = truck.position_y / scale
+        if not self.target_waypoint:
+            if self.waypoint_item_ids:
+                self.canvas.delete(self.waypoint_item_ids['oval'])
+                self.canvas.delete(self.waypoint_item_ids['text'])
+                self.waypoint_item_ids = None
+            self.waypoint_dirty = False
+            return
 
-            # Draw trail (optimized: single polyline instead of multiple segments)
-            if len(truck.history) > 1:
-                trail_coords = []
-                for px, py in truck.history:
-                    trail_coords.extend([px/scale, py/scale])
-                self.canvas.create_line(*trail_coords, fill='cyan', width=1,
-                                       smooth=True, tags='trail')
+        wx, wy = self.target_waypoint
+        cx = self.canvas_x(wx)
+        cy = self.canvas_y(wy)
 
-            # Determine color
-            if truck.has_any_fault():
-                color = 'red'
-            elif truck.temperature > 95:
-                color = 'orange'
-            elif truck.mode == "AUTO":
-                color = 'green'
-            else:
-                color = 'blue'
-
-            # Draw truck
-            size = 15
-            self.canvas.create_rectangle(x-size, y-size, x+size, y+size,
-                                         fill=color, outline='white', width=2, tags='truck')
-
-            # Draw direction indicator
-            rad = math.radians(truck.angle)
-            dir_len = 20
-            end_x = x + dir_len * math.cos(rad)
-            end_y = y + dir_len * math.sin(rad)
-            self.canvas.create_line(x, y, end_x, end_y, fill='yellow', width=2, tags='truck')
-
-            # Draw label with arrival indicator
-            label_text = f"T{truck.id}"
-            if truck.arrived:
-                label_text += " ✓"  # Checkmark for arrived
-            self.canvas.create_text(x, y-size-10, text=label_text,
-                                   fill='white', font=('Arial', 10, 'bold'), tags='truck')
-
-        # Clear dirty flags after redrawing
-        for truck in self.trucks.values():
-            truck.dirty = False
+        if self.waypoint_item_ids is None:
+            oval_id = self.canvas.create_oval(
+                cx - WAYPOINT_DISPLAY_RADIUS,
+                cy - WAYPOINT_DISPLAY_RADIUS,
+                cx + WAYPOINT_DISPLAY_RADIUS,
+                cy + WAYPOINT_DISPLAY_RADIUS,
+                fill='yellow',
+                outline='orange',
+                width=2,
+                tags='waypoint'
+            )
+            text_id = self.canvas.create_text(
+                cx, cy - 15,
+                text="TARGET",
+                fill='yellow',
+                font=('Arial', 10, 'bold'),
+                tags='waypoint'
+            )
+            self.waypoint_item_ids = {'oval': oval_id, 'text': text_id}
+        else:
+            self.canvas.coords(
+                self.waypoint_item_ids['oval'],
+                cx - WAYPOINT_DISPLAY_RADIUS,
+                cy - WAYPOINT_DISPLAY_RADIUS,
+                cx + WAYPOINT_DISPLAY_RADIUS,
+                cy + WAYPOINT_DISPLAY_RADIUS
+            )
+            self.canvas.coords(self.waypoint_item_ids['text'], cx, cy - 15)
+        
         self.waypoint_dirty = False
 
-    def update_info_panel(self):
-        """Update truck information display"""
-        self.info_text.config(state='normal')
-        self.info_text.delete('1.0', tk.END)
+    def draw_truck_trail(self, truck, truck_items):
+        if len(truck.position_history) < 2:
+            if 'trail' in truck_items:
+                self.canvas.delete(truck_items['trail'])
+                del truck_items['trail']
+            return
 
-        if self.selected_truck and self.selected_truck in self.trucks:
-            truck = self.trucks[self.selected_truck]
+        trail_coords = []
+        for px, py in truck.position_history:
+            trail_coords.extend([self.canvas_x(px), self.canvas_y(py)])
 
-            info = f"Truck {truck.id} Information\n"
-            info += "=" * 30 + "\n\n"
+        if 'trail' not in truck_items:
+            trail_id = self.canvas.create_line(
+                *trail_coords,
+                fill='cyan',
+                width=1,
+                tags='trail'
+            )
+            truck_items['trail'] = trail_id
+        else:
+            self.canvas.coords(truck_items['trail'], *trail_coords)
 
-            # Position and heading
-            info += f"Position: ({truck.position_x}, {truck.position_y})\n"
-            info += f"Heading: {truck.angle}°\n"
-            info += f"Temperature: {truck.temperature}°C\n"
+    def draw_truck_body(self, truck, truck_items, x, y):
+        color = truck.get_display_color()
 
-            # Mode and status
-            info += f"\n--- Status ---\n"
-            info += f"Mode: {truck.mode}\n"
-            info += f"Fault State: {'FAULT' if truck.fault_state else 'OK'}\n"
+        if 'body' not in truck_items:
+            body_id = self.canvas.create_rectangle(
+                x - TRUCK_DISPLAY_SIZE,
+                y - TRUCK_DISPLAY_SIZE,
+                x + TRUCK_DISPLAY_SIZE,
+                y + TRUCK_DISPLAY_SIZE,
+                fill=color,
+                outline='white',
+                width=2,
+                tags='truck'
+            )
+            truck_items['body'] = body_id
+        else:
+            self.canvas.coords(
+                truck_items['body'],
+                x - TRUCK_DISPLAY_SIZE,
+                y - TRUCK_DISPLAY_SIZE,
+                x + TRUCK_DISPLAY_SIZE,
+                y + TRUCK_DISPLAY_SIZE
+            )
+            self.canvas.itemconfig(truck_items['body'], fill=color)
 
-            # Actuator outputs and arrival
-            info += f"\n--- Control ---\n"
-            info += f"Acceleration: {truck.acceleration}%\n"
-            info += f"Steering: {truck.steering}°\n"
-            info += f"Arrived: {'YES' if truck.arrived else 'NO'}\n"
+    def draw_truck_direction(self, truck, truck_items, x, y):
+        rad = math.radians(truck.angle)
+        end_x = x + DIRECTION_INDICATOR_LENGTH * math.cos(rad)
+        end_y = y + DIRECTION_INDICATOR_LENGTH * math.sin(rad)
 
-            # Fault details
-            info += f"\n--- Faults ---\n"
-            info += f"Electrical: {'FAULT' if truck.fault_electrical else 'OK'}\n"
-            info += f"Hydraulic: {'FAULT' if truck.fault_hydraulic else 'OK'}\n"
+        if 'direction' not in truck_items:
+            direction_id = self.canvas.create_line(
+                x, y, end_x, end_y,
+                fill='yellow',
+                width=2,
+                tags='truck'
+            )
+            truck_items['direction'] = direction_id
+        else:
+            self.canvas.coords(truck_items['direction'], x, y, end_x, end_y)
 
-            # Temperature warnings
-            if truck.temperature > 120:
-                info += f"\n⚠ CRITICAL TEMPERATURE!\n"
-            elif truck.temperature > 95:
-                info += f"\n⚠ High temperature\n"
+    def draw_truck_label(self, truck, truck_items, x, y):
+        label_text = f"T{truck.id}"
+        if truck.arrived:
+            label_text += " ✓"
 
-            # Update timing info
+        if 'label' not in truck_items:
+            label_id = self.canvas.create_text(
+                x, y - TRUCK_DISPLAY_SIZE - 10,
+                text=label_text,
+                fill='white',
+                font=('Arial', 10, 'bold'),
+                tags='truck'
+            )
+            truck_items['label'] = label_id
+        else:
+            self.canvas.coords(truck_items['label'], x, y - TRUCK_DISPLAY_SIZE - 10)
+            self.canvas.itemconfig(truck_items['label'], text=label_text)
+
+    def draw_trucks(self):
+        self.draw_waypoint()
+
+        current_truck_ids = set(self.trucks.keys())
+        cached_truck_ids = set(self.canvas_items.keys())
+
+        removed_trucks = cached_truck_ids - current_truck_ids
+        for truck_id in removed_trucks:
+            for item_id in self.canvas_items[truck_id].values():
+                self.canvas.delete(item_id)
+            del self.canvas_items[truck_id]
+
+        for truck_id, truck in self.trucks.items():
+            if not truck.dirty and truck_id in self.canvas_items:
+                continue
+
+            if truck_id not in self.canvas_items:
+                self.canvas_items[truck_id] = {}
+
+            truck_items = self.canvas_items[truck_id]
+            x = self.canvas_x(truck.position_x)
+            y = self.canvas_y(truck.position_y)
+
+            self.draw_truck_trail(truck, truck_items)
+            self.draw_truck_body(truck, truck_items, x, y)
+            self.draw_truck_direction(truck, truck_items, x, y)
+            self.draw_truck_label(truck, truck_items, x, y)
+            
+            truck.dirty = False
+
+    def format_truck_info(self, truck):
+        info = f"Truck {truck.id} Information\n"
+        info += "=" * 30 + "\n\n"
+
+        info += f"Position: ({truck.position_x}, {truck.position_y})\n"
+        info += f"Heading: {truck.angle}°\n"
+        info += f"Temperature: {truck.temperature}°C\n"
+
+        info += f"\n--- Status ---\n"
+        info += f"Mode: {truck.mode}\n"
+        info += f"Fault State: {'FAULT' if truck.fault_state else 'OK'}\n"
+
+        info += f"\n--- Control ---\n"
+        info += f"Acceleration: {truck.acceleration}%\n"
+        info += f"Steering: {truck.steering}°\n"
+        info += f"Arrived: {'YES' if truck.arrived else 'NO'}\n"
+
+        info += f"\n--- Faults ---\n"
+        info += f"Electrical: {'FAULT' if truck.fault_electrical else 'OK'}\n"
+        info += f"Hydraulic: {'FAULT' if truck.fault_hydraulic else 'OK'}\n"
+
+        if truck.temperature > TEMPERATURE_CRITICAL_THRESHOLD:
+            info += f"\n⚠ CRITICAL TEMPERATURE!\n"
+        elif truck.is_temperature_warning():
+            info += f"\n⚠ High temperature\n"
+
+        if truck.last_update:
+            age = (datetime.now() - truck.last_update).total_seconds()
             info += f"\n--- Updates ---\n"
-            if truck.last_sensor_update:
-                age = (datetime.now() - truck.last_sensor_update).total_seconds()
-                info += f"Sensors: {age:.1f}s ago\n"
-            if truck.last_command_update:
-                age = (datetime.now() - truck.last_command_update).total_seconds()
-                info += f"Commands: {age:.1f}s ago\n"
+            info += f"Last update: {age:.1f}s ago\n"
 
-            self.info_text.insert('1.0', info)
+        return info
 
-        self.info_text.config(state='disabled')
+    def update_info_panel(self):
+        if not self.selected_truck or self.selected_truck not in self.trucks:
+            if self.last_info_text != "No truck selected":
+                self.info_text.config(state='normal')
+                self.info_text.delete('1.0', tk.END)
+                self.info_text.insert('1.0', "No truck selected")
+                self.info_text.config(state='disabled')
+                self.last_info_text = "No truck selected"
+            return
+
+        truck = self.trucks[self.selected_truck]
+        new_info = self.format_truck_info(truck)
+
+        if new_info != self.last_info_text:
+            self.info_text.config(state='normal')
+            self.info_text.delete('1.0', tk.END)
+            self.info_text.insert('1.0', new_info)
+            self.info_text.config(state='disabled')
+            self.last_info_text = new_info
 
     def update_gui(self):
-        """Periodic GUI update"""
+        current_time = time.time()
+        self.frame_times.append(current_time)
+
+        if len(self.frame_times) >= 2:
+            time_span = self.frame_times[-1] - self.frame_times[0]
+            if time_span > 0:
+                self.fps = (len(self.frame_times) - 1) / time_span
+                self.fps_label.config(text=f"FPS: {self.fps:.1f}")
+
         self.draw_trucks()
         self.update_info_panel()
-
-        # Schedule next update (100ms for more responsive updates)
-        self.root.after(100, self.update_gui)
+        self.root.after(GUI_UPDATE_PERIOD_MS, self.update_gui)
 
     def on_closing(self):
-        """Handle window close"""
         if self.mqtt_client:
             self.mqtt_client.loop_stop()
             self.mqtt_client.disconnect()
         self.root.destroy()
+
 
 def main():
     root = tk.Tk()

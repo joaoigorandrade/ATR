@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""
-Mine Simulation GUI
-
-Simulates the mine environment and truck physics:
-- Visual representation of trucks on a 2D map
-- Physics simulation: position from acceleration/steering
-- Random sensor noise generation
-- Fault injection capability
-- MQTT publisher for sensor data
-
-Real-Time Automation Concepts:
-- Simulation of physical systems
-- Sensor noise modeling
-- MQTT pub/sub communication
-"""
 
 import json
 import math
@@ -29,34 +14,61 @@ except ImportError:
     print("Warning: paho-mqtt not installed. Install with: pip install paho-mqtt")
     mqtt = None
 
-# Constants
-WINDOW_WIDTH = 1000
-WINDOW_HEIGHT = 700
-MAP_WIDTH = 1000
-MAP_HEIGHT = 700
-FPS = 30
+WINDOW_WIDTH_PIXELS = 1000
+WINDOW_HEIGHT_PIXELS = 700
+MAP_WIDTH_PIXELS = 1000
+MAP_HEIGHT_PIXELS = 700
+SIMULATION_FPS = 30
 
-# Colors
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-GRAY = (128, 128, 128)
-DARK_GRAY = (64, 64, 64)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 100, 255)
-YELLOW = (255, 255, 0)
-ORANGE = (255, 165, 0)
+COLOR_BLACK = (0, 0, 0)
+COLOR_WHITE = (255, 255, 255)
+COLOR_GRAY = (128, 128, 128)
+COLOR_DARK_GRAY = (64, 64, 64)
+COLOR_RED = (255, 0, 0)
+COLOR_GREEN = (0, 255, 0)
+COLOR_BLUE = (0, 100, 255)
+COLOR_YELLOW = (255, 255, 0)
+COLOR_ORANGE = (255, 165, 0)
 
-# MQTT Configuration
-MQTT_BROKER = "localhost"
-MQTT_PORT = 1883
+MQTT_BROKER_HOST = "localhost"
+MQTT_BROKER_PORT = 1883
 MQTT_TOPIC_SENSORS = "truck/{}/sensors"
 MQTT_TOPIC_COMMANDS = "truck/{}/commands"
 
+TRUCK_MAX_SPEED = 5.0
+TRUCK_ACCELERATION_RATE = 0.3
+TRUCK_WIDTH_PIXELS = 40
+TRUCK_HEIGHT_PIXELS = 60
+TRUCK_DIRECTION_LINE_LENGTH = 30
+
+TEMPERATURE_MIN = 20
+TEMPERATURE_MAX = 150
+TEMPERATURE_BASE = 75.0
+TEMPERATURE_INCREASE_RATE = 0.1
+TEMPERATURE_DECREASE_RATE = 0.05
+TEMPERATURE_WARNING_THRESHOLD = 95
+TEMPERATURE_CRITICAL_THRESHOLD = 120
+TEMPERATURE_TEST_INCREMENT = 20
+
+VELOCITY_HEATING_THRESHOLD = 2.0
+
+SENSOR_NOISE_POSITION = 2
+SENSOR_NOISE_ANGLE = 1
+SENSOR_NOISE_TEMPERATURE = 2
+
+ANGLE_NORMALIZATION = 360
+MAX_TURN_RATE_DEGREES = 5.0
+
+GRID_SPACING_PIXELS = 100
+
+SENSOR_PUBLISH_FRAME_INTERVAL = 3
+
+DEFAULT_TRUCK_ID = 1
+DEFAULT_TRUCK_X = 100
+DEFAULT_TRUCK_Y = 200
+
 
 class Truck:
-    """Represents a simulated mining truck"""
-
     def __init__(self, truck_id, x, y):
         self.id = truck_id
         self.x = float(x)
@@ -66,129 +78,140 @@ class Truck:
         self.acceleration = 0
         self.steering = 0
 
-        self.temperature = 75.0
+        self.temperature = TEMPERATURE_BASE
         self.fault_electrical = False
         self.fault_hydraulic = False
 
-        self.max_speed = 5.0
-        self.accel_rate = 0.3
-        self.friction = 0.95
+        self.max_speed = TRUCK_MAX_SPEED
+        self.accel_rate = TRUCK_ACCELERATION_RATE
 
-        self.width = 40
-        self.height = 60
-        self.color = BLUE
+        self.width = TRUCK_WIDTH_PIXELS
+        self.height = TRUCK_HEIGHT_PIXELS
+        self.color = COLOR_BLUE
 
-    def update_physics(self, dt=1.0):
-        """Update truck physics based on acceleration and steering"""
-        if self.acceleration > 0:
-            self.velocity += self.accel_rate * (self.acceleration / 100.0)
-        elif self.acceleration < 0:
+    def update_velocity(self):
+        if self.acceleration != 0:
             self.velocity += self.accel_rate * (self.acceleration / 100.0)
         else:
             self.velocity = 0
 
         self.velocity = max(-self.max_speed, min(self.max_speed, self.velocity))
 
-        target_angle = self.steering
+    def normalize_angle_difference(self, target_angle):
         angle_diff = target_angle - self.angle
         while angle_diff > 180:
-            angle_diff -= 360
+            angle_diff -= ANGLE_NORMALIZATION
         while angle_diff < -180:
-            angle_diff += 360
+            angle_diff += ANGLE_NORMALIZATION
+        return angle_diff
 
-        max_turn_rate = 5.0
-        if abs(angle_diff) > max_turn_rate:
-            self.angle += max_turn_rate if angle_diff > 0 else -max_turn_rate
+    def update_steering(self):
+        angle_diff = self.normalize_angle_difference(self.steering)
+
+        if abs(angle_diff) > MAX_TURN_RATE_DEGREES:
+            self.angle += MAX_TURN_RATE_DEGREES if angle_diff > 0 else -MAX_TURN_RATE_DEGREES
         else:
-            self.angle = target_angle
+            self.angle = self.steering
 
-        self.angle %= 360
+        self.angle %= ANGLE_NORMALIZATION
 
+    def update_position(self):
         rad = math.radians(self.angle)
         self.x += self.velocity * math.cos(rad)
         self.y += self.velocity * math.sin(rad)
 
-        self.x = max(0, min(MAP_WIDTH, self.x))
-        self.y = max(0, min(MAP_HEIGHT, self.y))
+        self.x = max(0, min(MAP_WIDTH_PIXELS, self.x))
+        self.y = max(0, min(MAP_HEIGHT_PIXELS, self.y))
 
-        if abs(self.velocity) > 2.0:
-            self.temperature += 0.1
+    def update_temperature(self):
+        if abs(self.velocity) > VELOCITY_HEATING_THRESHOLD:
+            self.temperature += TEMPERATURE_INCREASE_RATE
         else:
-            self.temperature -= 0.05
+            self.temperature -= TEMPERATURE_DECREASE_RATE
 
-        self.temperature = max(20, min(150, self.temperature))
+        self.temperature = max(TEMPERATURE_MIN, min(TEMPERATURE_MAX, self.temperature))
+
+    def update_physics(self, dt=1.0):
+        self.update_velocity()
+        self.update_steering()
+        self.update_position()
+        self.update_temperature()
 
     def get_sensor_data_with_noise(self):
-        """Get sensor data with random noise"""
-        noise_pos = 2
-        noise_angle = 1
-        noise_temp = 2
-
         return {
             "truck_id": self.id,
-            "position_x": int(self.x + random.uniform(-noise_pos, noise_pos)),
-            "position_y": int(self.y + random.uniform(-noise_pos, noise_pos)),
-            "angle_x": int(self.angle + random.uniform(-noise_angle, noise_angle))
-            % 360,
-            "temperature": int(
-                self.temperature + random.uniform(-noise_temp, noise_temp)
-            ),
+            "position_x": int(self.x + random.uniform(-SENSOR_NOISE_POSITION, SENSOR_NOISE_POSITION)),
+            "position_y": int(self.y + random.uniform(-SENSOR_NOISE_POSITION, SENSOR_NOISE_POSITION)),
+            "angle_x": int(self.angle + random.uniform(-SENSOR_NOISE_ANGLE, SENSOR_NOISE_ANGLE)) % ANGLE_NORMALIZATION,
+            "temperature": int(self.temperature + random.uniform(-SENSOR_NOISE_TEMPERATURE, SENSOR_NOISE_TEMPERATURE)),
             "fault_electrical": self.fault_electrical,
             "fault_hydraulic": self.fault_hydraulic,
             "timestamp": int(datetime.now().timestamp() * 1000),
         }
 
-    def draw(self, screen):
-        """Draw the truck on the screen"""
+    def calculate_rotated_corners(self):
         rad = math.radians(self.angle)
         cos_a = math.cos(rad)
         sin_a = math.sin(rad)
-        points = [
+
+        corners = [
             (-self.width / 2, -self.height / 2),
             (self.width / 2, -self.height / 2),
             (self.width / 2, self.height / 2),
             (-self.width / 2, self.height / 2),
         ]
 
-        rotated_points = []
-        for px, py in points:
+        rotated_corners = []
+        for px, py in corners:
             rx = px * cos_a - py * sin_a
             ry = px * sin_a + py * cos_a
-            rotated_points.append((self.x + rx, self.y + ry))
+            rotated_corners.append((self.x + rx, self.y + ry))
 
-        color = self.color
+        return rotated_corners
+
+    def get_display_color(self):
         if self.fault_electrical or self.fault_hydraulic:
-            color = RED
-        elif self.temperature > 120:
-            color = RED
-        elif self.temperature > 95:
-            color = ORANGE
+            return COLOR_RED
+        if self.temperature > TEMPERATURE_CRITICAL_THRESHOLD:
+            return COLOR_RED
+        if self.temperature > TEMPERATURE_WARNING_THRESHOLD:
+            return COLOR_ORANGE
+        return self.color
 
-        pygame.draw.polygon(screen, color, rotated_points)
-        pygame.draw.polygon(screen, WHITE, rotated_points, 2)
+    def draw_body(self, screen):
+        rotated_corners = self.calculate_rotated_corners()
+        color = self.get_display_color()
 
-        dir_len = 30
-        end_x = self.x + dir_len * cos_a
-        end_y = self.y + dir_len * sin_a
-        pygame.draw.line(screen, YELLOW, (self.x, self.y), (end_x, end_y), 3)
+        pygame.draw.polygon(screen, color, rotated_corners)
+        pygame.draw.polygon(screen, COLOR_WHITE, rotated_corners, 2)
 
+    def draw_direction_indicator(self, screen):
+        rad = math.radians(self.angle)
+        end_x = self.x + TRUCK_DIRECTION_LINE_LENGTH * math.cos(rad)
+        end_y = self.y + TRUCK_DIRECTION_LINE_LENGTH * math.sin(rad)
+        pygame.draw.line(screen, COLOR_YELLOW, (self.x, self.y), (end_x, end_y), 3)
+
+    def draw_label(self, screen):
         font = pygame.font.Font(None, 24)
-        text = font.render(f"T{self.id}", True, WHITE)
+        text = font.render(f"T{self.id}", True, COLOR_WHITE)
         screen.blit(text, (self.x - 10, self.y - self.height / 2 - 20))
+
+    def draw(self, screen):
+        self.draw_body(screen)
+        self.draw_direction_indicator(screen)
+        self.draw_label(screen)
 
 
 class MineSimulation:
-    """Main simulation class"""
-
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+        self.screen = pygame.display.set_mode((WINDOW_WIDTH_PIXELS, WINDOW_HEIGHT_PIXELS))
         pygame.display.set_caption("Mine Simulation - Stage 2")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 24)
         self.small_font = pygame.font.Font(None, 20)
 
-        self.trucks = {1: Truck(1, 100, 200)}
+        self.trucks = {DEFAULT_TRUCK_ID: Truck(DEFAULT_TRUCK_ID, DEFAULT_TRUCK_X, DEFAULT_TRUCK_Y)}
 
         self.mqtt_client = None
         self.mqtt_connected = False
@@ -199,21 +222,19 @@ class MineSimulation:
         self.paused = False
 
     def setup_mqtt(self):
-        """Initialize MQTT connection"""
         try:
             self.mqtt_client = mqtt.Client(client_id="mine_simulation")
             self.mqtt_client.on_connect = self.on_mqtt_connect
             self.mqtt_client.on_message = self.on_mqtt_message
 
-            self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            self.mqtt_client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
             self.mqtt_client.loop_start()
-            print(f"[MQTT] Connecting to broker at {MQTT_BROKER}:{MQTT_PORT}")
+            print(f"[MQTT] Connecting to broker at {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
         except Exception as e:
             print(f"[MQTT] Connection failed: {e}")
             print("[MQTT] Continuing without MQTT. Start broker with: mosquitto")
 
     def on_mqtt_connect(self, client, userdata, flags, rc):
-        """MQTT connection callback"""
         if rc == 0:
             self.mqtt_connected = True
             print("[MQTT] Connected successfully")
@@ -226,7 +247,6 @@ class MineSimulation:
             print(f"[MQTT] Connection failed with code {rc}")
 
     def on_mqtt_message(self, client, userdata, msg):
-        """MQTT message callback for receiving commands"""
         try:
             topic_parts = msg.topic.split("/")
             truck_id = int(topic_parts[1])
@@ -244,7 +264,6 @@ class MineSimulation:
             print(f"[MQTT] Error processing message: {e}")
 
     def publish_sensor_data(self):
-        """Publish sensor data for all trucks via MQTT"""
         if not self.mqtt_connected or not self.mqtt_client:
             return
 
@@ -254,8 +273,22 @@ class MineSimulation:
             payload = json.dumps(sensor_data)
             self.mqtt_client.publish(topic, payload)
 
+    def toggle_electrical_fault(self):
+        truck = self.trucks[DEFAULT_TRUCK_ID]
+        truck.fault_electrical = not truck.fault_electrical
+        print(f"[Simulation] Electrical fault: {truck.fault_electrical}")
+
+    def toggle_hydraulic_fault(self):
+        truck = self.trucks[DEFAULT_TRUCK_ID]
+        truck.fault_hydraulic = not truck.fault_hydraulic
+        print(f"[Simulation] Hydraulic fault: {truck.fault_hydraulic}")
+
+    def increase_temperature(self):
+        truck = self.trucks[DEFAULT_TRUCK_ID]
+        truck.temperature += TEMPERATURE_TEST_INCREMENT
+        print(f"[Simulation] Temperature: {truck.temperature}°C")
+
     def handle_events(self):
-        """Handle pygame events"""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -266,81 +299,67 @@ class MineSimulation:
                 elif event.key == pygame.K_SPACE:
                     self.paused = not self.paused
                 elif event.key == pygame.K_e:
-                    self.trucks[1].fault_electrical = not self.trucks[
-                        1
-                    ].fault_electrical
-                    print(
-                        f"[Simulation] Electrical fault: {self.trucks[1].fault_electrical}"
-                    )
+                    self.toggle_electrical_fault()
                 elif event.key == pygame.K_h:
-                    self.trucks[1].fault_hydraulic = not self.trucks[1].fault_hydraulic
-                    print(
-                        f"[Simulation] Hydraulic fault: {self.trucks[1].fault_hydraulic}"
-                    )
+                    self.toggle_hydraulic_fault()
                 elif event.key == pygame.K_t:
-                    self.trucks[1].temperature += 20
-                    print(f"[Simulation] Temperature: {self.trucks[1].temperature}°C")
+                    self.increase_temperature()
 
     def update(self):
-        """Update simulation state"""
         if not self.paused:
             for truck in self.trucks.values():
                 truck.update_physics()
 
-    def draw(self):
-        """Draw simulation"""
-        self.screen.fill(DARK_GRAY)
+    def draw_grid(self):
+        for x in range(0, MAP_WIDTH_PIXELS, GRID_SPACING_PIXELS):
+            pygame.draw.line(self.screen, COLOR_GRAY, (x, 0), (x, MAP_HEIGHT_PIXELS), 1)
+        for y in range(0, MAP_HEIGHT_PIXELS, GRID_SPACING_PIXELS):
+            pygame.draw.line(self.screen, COLOR_GRAY, (0, y), (MAP_WIDTH_PIXELS, y), 1)
 
-        for x in range(0, MAP_WIDTH, 100):
-            pygame.draw.line(self.screen, GRAY, (x, 0), (x, MAP_HEIGHT), 1)
-        for y in range(0, MAP_HEIGHT, 100):
-            pygame.draw.line(self.screen, GRAY, (0, y), (MAP_WIDTH, y), 1)
-
+    def draw_trucks(self):
         for truck in self.trucks.values():
             truck.draw(self.screen)
 
-        self.draw_ui()
-
-        pygame.display.flip()
-
-    def draw_ui(self):
-        """Draw user interface"""
-        y_offset = 10
-
-        title = self.font.render("MINE SIMULATION - Stage 2", True, WHITE)
+    def draw_title(self, y_offset):
+        title = self.font.render("MINE SIMULATION - Stage 2", True, COLOR_WHITE)
         self.screen.blit(title, (10, y_offset))
-        y_offset += 30
+        return y_offset + 30
 
+    def draw_status(self, y_offset):
         status_text = "PAUSED" if self.paused else "RUNNING"
-        status_color = YELLOW if self.paused else GREEN
+        status_color = COLOR_YELLOW if self.paused else COLOR_GREEN
         status = self.font.render(f"Status: {status_text}", True, status_color)
         self.screen.blit(status, (10, y_offset))
-        y_offset += 25
+        return y_offset + 25
 
+    def draw_mqtt_status(self, y_offset):
         mqtt_text = "Connected" if self.mqtt_connected else "Disconnected"
-        mqtt_color = GREEN if self.mqtt_connected else RED
+        mqtt_color = COLOR_GREEN if self.mqtt_connected else COLOR_RED
         mqtt_status = self.small_font.render(f"MQTT: {mqtt_text}", True, mqtt_color)
         self.screen.blit(mqtt_status, (10, y_offset))
-        y_offset += 25
+        return y_offset + 25
 
-        for truck in self.trucks.values():
-            y_offset += 10
-            info_lines = [
-                f"Truck {truck.id}:",
-                f"  Pos: ({int(truck.x)}, {int(truck.y)})",
-                f"  Angle: {int(truck.angle)}°",
-                f"  Vel: {truck.velocity:.1f}",
-                f"  Temp: {int(truck.temperature)}°C",
-                f"  Acc: {truck.acceleration}%",
-                f"  Steer: {truck.steering}°",
-            ]
+    def draw_truck_info(self, truck, y_offset):
+        y_offset += 10
+        info_lines = [
+            f"Truck {truck.id}:",
+            f"  Pos: ({int(truck.x)}, {int(truck.y)})",
+            f"  Angle: {int(truck.angle)}°",
+            f"  Vel: {truck.velocity:.1f}",
+            f"  Temp: {int(truck.temperature)}°C",
+            f"  Acc: {truck.acceleration}%",
+            f"  Steer: {truck.steering}°",
+        ]
 
-            for line in info_lines:
-                text = self.small_font.render(line, True, WHITE)
-                self.screen.blit(text, (10, y_offset))
-                y_offset += 20
+        for line in info_lines:
+            text = self.small_font.render(line, True, COLOR_WHITE)
+            self.screen.blit(text, (10, y_offset))
+            y_offset += 20
 
-        y_offset = WINDOW_HEIGHT - 120
+        return y_offset
+
+    def draw_controls(self):
+        y_offset = WINDOW_HEIGHT_PIXELS - 120
         controls = [
             "Controls:",
             "SPACE - Pause/Resume",
@@ -351,12 +370,29 @@ class MineSimulation:
         ]
 
         for line in controls:
-            text = self.small_font.render(line, True, YELLOW)
+            text = self.small_font.render(line, True, COLOR_YELLOW)
             self.screen.blit(text, (10, y_offset))
             y_offset += 18
 
-    def run(self):
-        """Main simulation loop"""
+    def draw_ui(self):
+        y_offset = 10
+        y_offset = self.draw_title(y_offset)
+        y_offset = self.draw_status(y_offset)
+        y_offset = self.draw_mqtt_status(y_offset)
+
+        for truck in self.trucks.values():
+            y_offset = self.draw_truck_info(truck, y_offset)
+
+        self.draw_controls()
+
+    def draw(self):
+        self.screen.fill(COLOR_DARK_GRAY)
+        self.draw_grid()
+        self.draw_trucks()
+        self.draw_ui()
+        pygame.display.flip()
+
+    def print_startup_message(self):
         print("=" * 50)
         print("Mine Simulation Started")
         print("=" * 50)
@@ -368,6 +404,9 @@ class MineSimulation:
         print("  ESC - Quit")
         print("=" * 50)
 
+    def run(self):
+        self.print_startup_message()
+
         frame_count = 0
 
         while self.running:
@@ -376,11 +415,10 @@ class MineSimulation:
             self.draw()
 
             frame_count += 1
-            # Publish sensor data every 3 frames (10 Hz at 30 FPS)
-            if frame_count % 3 == 0:
+            if frame_count % SENSOR_PUBLISH_FRAME_INTERVAL == 0:
                 self.publish_sensor_data()
 
-            self.clock.tick(FPS)
+            self.clock.tick(SIMULATION_FPS)
 
         if self.mqtt_client:
             self.mqtt_client.loop_stop()
