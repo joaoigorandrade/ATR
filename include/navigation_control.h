@@ -14,7 +14,12 @@ constexpr int FULL_CIRCLE_DEG = 360;
 constexpr int NEGATIVE_HALF_CIRCLE_DEG = -180;
 
 constexpr double ARRIVAL_RADIUS_UNITS = 5.0;
-constexpr double ALIGNMENT_THRESHOLD_DEG = 5.0;
+constexpr double DEPARTURE_THRESHOLD_UNITS = 150.0;
+constexpr double SPEED_GAIN = 0.15;
+constexpr double STEERING_GAIN = 1.0;
+constexpr int MAX_SPEED = 50;
+constexpr int MIN_SPEED = 10;
+constexpr double HEADING_DEADBAND_DEG = 2.0;
 
 /**
  * @brief Navigation Control Task
@@ -96,23 +101,19 @@ private:
     void task_loop();
 
     /**
-     * @brief Navigation states
-     */
-    enum class NavState {
-        ROTATING,   // Rotating to align with target
-        MOVING,     // Moving straight toward target
-        ARRIVED     // Within arrival radius
-    };
-
-    /**
      * @brief Calculate angle from current position to target
      */
     int calculate_target_heading(int current_x, int current_y, int target_x, int target_y);
 
     /**
-     * @brief Execute simplified navigation control
+     * @brief Execute proportional control algorithms
      */
     void execute_control(const SensorData& sensor_data);
+
+    /**
+     * @brief Clamp value between min and max
+     */
+    int clamp(int value, int min_val, int max_val);
 
     CircularBuffer& buffer_;                // Reference to shared buffer
     int period_ms_;                         // Control loop period
@@ -124,11 +125,8 @@ private:
     NavigationSetpoint setpoint_;           // Current setpoint values
     TruckState truck_state_;                // Current truck state
     ActuatorOutput output_;                 // Current control outputs
-    NavState nav_state_;                    // Current navigation state
 
     PerformanceMonitor* perf_monitor_;      // Performance monitoring (optional)
-
-    static constexpr int FIXED_SPEED = 30;
 };
 
 #endif // NAVIGATION_CONTROL_H

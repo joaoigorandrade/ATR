@@ -11,7 +11,6 @@ NavigationControl::NavigationControl(CircularBuffer& buffer, int period_ms, Perf
     : buffer_(buffer),
       period_ms_(period_ms),
       running_(false),
-      nav_state_(NavState::ROTATING),
       perf_monitor_(perf_monitor) {
 
     truck_state_.fault = false;
@@ -68,7 +67,6 @@ void NavigationControl::set_setpoint(const NavigationSetpoint& setpoint) {
     setpoint_ = setpoint;
 
     if (new_target) {
-        nav_state_ = NavState::ROTATING;
         output_.arrived = false;
         LOG_INFO(NC) << "event" << "new_target"
                      << "tgt_x" << setpoint_.target_position_x
@@ -109,9 +107,8 @@ void NavigationControl::task_loop() {
                 setpoint_.target_angle = sensor_data.angle_x;
 
                 output_.velocity = 0;
-                output_.steering = 0;
+                output_.steering = sensor_data.angle_x;
                 output_.arrived = false;
-                nav_state_ = NavState::ROTATING;
             }
         }
 
@@ -142,6 +139,12 @@ int NavigationControl::calculate_target_heading(int current_x, int current_y,
     return angle_deg;
 }
 
+int NavigationControl::clamp(int value, int min_val, int max_val) {
+    if (value < min_val) return min_val;
+    if (value > max_val) return max_val;
+    return value;
+}
+
 void NavigationControl::execute_control(const SensorData& sensor_data) {
     int dx = setpoint_.target_position_x - sensor_data.position_x;
     int dy = setpoint_.target_position_y - sensor_data.position_y;
@@ -152,24 +155,32 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
                   << "cur_x" << sensor_data.position_x
                   << "cur_y" << sensor_data.position_y
                   << "tgt_x" << setpoint_.target_position_x
-                  << "tgt_y" << setpoint_.target_position_y
-                  << "state" << static_cast<int>(nav_state_);
+                  << "tgt_y" << setpoint_.target_position_y;
+
+    if (output_.arrived) {
+        if (distance > DEPARTURE_THRESHOLD_UNITS) {
+            output_.arrived = false;
+            LOG_INFO(NC) << "event" << "departure"
+                         << "dist" << static_cast<int>(distance);
+        } else {
+            output_.velocity = 0;
+            output_.steering = sensor_data.angle_x;
+            LOG_DEBUG(NC) << "event" << "hold_position"
+                          << "dist" << static_cast<int>(distance);
+            return;
+        }
+    }
 
     if (distance <= ARRIVAL_RADIUS_UNITS) {
-        if (nav_state_ != NavState::ARRIVED) {
-            nav_state_ = NavState::ARRIVED;
-            output_.arrived = true;
-            LOG_INFO(NC) << "event" << "arrived"
-                         << "dist" << static_cast<int>(distance)
-                         << "cur_x" << sensor_data.position_x
-                         << "cur_y" << sensor_data.position_y
-                         << "tgt_x" << setpoint_.target_position_x
-                         << "tgt_y" << setpoint_.target_position_y;
-        }
+        output_.arrived = true;
         output_.velocity = 0;
         output_.steering = sensor_data.angle_x;
-        LOG_DEBUG(NC) << "event" << "hold_position"
-                      << "dist" << static_cast<int>(distance);
+        LOG_INFO(NC) << "event" << "arrived"
+                     << "dist" << static_cast<int>(distance)
+                     << "cur_x" << sensor_data.position_x
+                     << "cur_y" << sensor_data.position_y
+                     << "tgt_x" << setpoint_.target_position_x
+                     << "tgt_y" << setpoint_.target_position_y;
         return;
     }
 
@@ -184,49 +195,28 @@ void NavigationControl::execute_control(const SensorData& sensor_data) {
 
     double abs_heading_error = std::abs(heading_error);
 
-    LOG_DEBUG(NC) << "event" << "heading_calc"
+    double speed_control = distance * SPEED_GAIN;
+    int desired_speed = static_cast<int>(speed_control);
+
+    if (desired_speed > MAX_SPEED) {
+        desired_speed = MAX_SPEED;
+    } else if (distance > ARRIVAL_RADIUS_UNITS * 3 && desired_speed < MIN_SPEED) {
+        desired_speed = MIN_SPEED;
+    } else if (desired_speed < 0) {
+        desired_speed = 0;
+    }
+
+    if (abs_heading_error > HEADING_DEADBAND_DEG) {
+        output_.steering = target_heading;
+    }
+
+    output_.velocity = desired_speed;
+
+    LOG_DEBUG(NC) << "event" << "p_control"
+                  << "dist" << static_cast<int>(distance)
+                  << "vel" << output_.velocity
                   << "tgt_hdg" << target_heading
                   << "cur_hdg" << sensor_data.angle_x
                   << "hdg_err" << static_cast<int>(abs_heading_error)
-                  << "dist" << static_cast<int>(distance);
-
-    switch (nav_state_) {
-        case NavState::ROTATING:
-            output_.velocity = 0;
-            output_.steering = target_heading;
-
-            LOG_DEBUG(NC) << "event" << "rotating"
-                          << "hdg_err" << static_cast<int>(abs_heading_error)
-                          << "tgt_hdg" << target_heading;
-
-            if (abs_heading_error <= ALIGNMENT_THRESHOLD_DEG) {
-                nav_state_ = NavState::MOVING;
-                LOG_INFO(NC) << "event" << "aligned"
-                             << "heading_err" << static_cast<int>(abs_heading_error)
-                             << "dist" << static_cast<int>(distance);
-            }
-            break;
-
-        case NavState::MOVING:
-            output_.velocity = FIXED_SPEED;
-            output_.steering = target_heading;
-
-            LOG_DEBUG(NC) << "event" << "moving"
-                          << "vel" << FIXED_SPEED
-                          << "hdg_err" << static_cast<int>(abs_heading_error)
-                          << "dist" << static_cast<int>(distance);
-
-            if (abs_heading_error > ALIGNMENT_THRESHOLD_DEG * 2) {
-                nav_state_ = NavState::ROTATING;
-                LOG_INFO(NC) << "event" << "misaligned"
-                             << "heading_err" << static_cast<int>(abs_heading_error)
-                             << "dist" << static_cast<int>(distance);
-            }
-            break;
-
-        case NavState::ARRIVED:
-            output_.velocity = 0;
-            output_.steering = sensor_data.angle_x;
-            break;
-    }
+                  << "str" << output_.steering;
 }
