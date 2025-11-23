@@ -1,20 +1,4 @@
 #!/usr/bin/env python3
-"""
-MQTT Bridge for C++ Truck Control
-
-This bridge allows the C++ truck control system to communicate via MQTT
-without requiring C++ MQTT libraries. It uses file-based communication:
-
-C++ writes to: bridge/to_mqtt/*.json
-Bridge reads, publishes via MQTT
-
-MQTT receives messages
-Bridge writes to: bridge/from_mqtt/*.json
-C++ reads and processes
-
-This is a simplified approach for educational purposes.
-In production, use native C++ MQTT libraries.
-"""
 
 import os
 import json
@@ -22,11 +6,43 @@ import time
 import glob
 from pathlib import Path
 
+class Colors:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+
+    BLACK = '\033[30m'
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    MAGENTA = '\033[35m'
+    CYAN = '\033[36m'
+    WHITE = '\033[37m'
+
+    BG_BLACK = '\033[40m'
+    BG_RED = '\033[41m'
+    BG_GREEN = '\033[42m'
+    BG_YELLOW = '\033[43m'
+    BG_BLUE = '\033[44m'
+    BG_MAGENTA = '\033[45m'
+    BG_CYAN = '\033[46m'
+    BG_WHITE = '\033[47m'
+
+    BRIGHT_BLACK = '\033[90m'
+    BRIGHT_RED = '\033[91m'
+    BRIGHT_GREEN = '\033[92m'
+    BRIGHT_YELLOW = '\033[93m'
+    BRIGHT_BLUE = '\033[94m'
+    BRIGHT_MAGENTA = '\033[95m'
+    BRIGHT_CYAN = '\033[96m'
+    BRIGHT_WHITE = '\033[97m'
+
 try:
     import paho.mqtt.client as mqtt
 except ImportError:
-    print("Error: paho-mqtt not installed")
-    print("Install with: pip3 install paho-mqtt")
+    print(f"{Colors.BRIGHT_RED}✖ Error: paho-mqtt not installed{Colors.RESET}")
+    print(f"{Colors.BRIGHT_YELLOW}  Install with: pip3 install paho-mqtt{Colors.RESET}")
     exit(1)
 
 # Directories for file-based communication
@@ -63,10 +79,10 @@ class MQTTBridge:
         try:
             self.mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
             self.mqtt_client.loop_start()
-            print(f"[Bridge] Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+            print(f"{Colors.BRIGHT_GREEN}✓ Connected to MQTT broker at {Colors.BRIGHT_CYAN}{MQTT_BROKER}:{MQTT_PORT}{Colors.RESET}")
         except Exception as e:
-            print(f"[Bridge] Failed to connect to MQTT broker: {e}")
-            print(f"[Bridge] Make sure mosquitto is running: mosquitto")
+            print(f"{Colors.BRIGHT_RED}✖ Failed to connect to MQTT broker: {Colors.BRIGHT_YELLOW}{e}{Colors.RESET}")
+            print(f"{Colors.BRIGHT_YELLOW}  Make sure mosquitto is running: {Colors.BRIGHT_WHITE}mosquitto{Colors.RESET}")
             exit(1)
 
         self.running = True
@@ -81,30 +97,27 @@ class MQTTBridge:
                     pass
 
     def on_connect(self, client, userdata, flags, rc):
-        """MQTT connection callback"""
         if rc == 0:
-            print("[Bridge] MQTT connected successfully")
-            # Subscribe to topics that C++ needs to receive
+            print(f"{Colors.BRIGHT_GREEN}✓ MQTT connected successfully{Colors.RESET}")
             client.subscribe(TOPIC_SENSORS)
             client.subscribe(TOPIC_COMMANDS)
             client.subscribe(TOPIC_SETPOINT)
-            print(f"[Bridge] Subscribed to: {TOPIC_SENSORS}, {TOPIC_COMMANDS}, {TOPIC_SETPOINT}")
+            print(f"{Colors.BRIGHT_BLUE}→ Subscribed to topics:{Colors.RESET}")
+            print(f"  {Colors.BRIGHT_CYAN}• {TOPIC_SENSORS}{Colors.RESET}")
+            print(f"  {Colors.BRIGHT_CYAN}• {TOPIC_COMMANDS}{Colors.RESET}")
+            print(f"  {Colors.BRIGHT_CYAN}• {TOPIC_SETPOINT}{Colors.RESET}")
         else:
-            print(f"[Bridge] MQTT connection failed with code {rc}")
+            print(f"{Colors.BRIGHT_RED}✖ MQTT connection failed with code {rc}{Colors.RESET}")
 
     def on_message(self, client, userdata, msg):
-        """MQTT message callback - write to file for C++ to read"""
         try:
-            # Parse message
             data = json.loads(msg.payload.decode())
 
-            # Create filename with timestamp
             timestamp = int(time.time() * 1000)
             topic_name = msg.topic.replace('/', '_')
             filename = f"{timestamp}_{topic_name}.json"
             filepath = os.path.join(FROM_MQTT_DIR, filename)
 
-            # Write to file for C++ to read
             message_data = {
                 "topic": msg.topic,
                 "payload": data,
@@ -114,14 +127,17 @@ class MQTTBridge:
             with open(filepath, 'w') as f:
                 json.dump(message_data, f)
 
-            # Only log important messages (not sensors or actuator commands)
             if 'commands' in msg.topic and ('auto_mode' in data or 'manual_mode' in data):
-                print(f"[Bridge] Mode command received: {data}")
+                mode = "AUTO" if data.get('auto_mode') else "MANUAL"
+                mode_color = Colors.BRIGHT_GREEN if data.get('auto_mode') else Colors.BRIGHT_CYAN
+                print(f"{Colors.BRIGHT_MAGENTA}← Mode command:{Colors.RESET} {mode_color}{mode}{Colors.RESET}")
             elif 'setpoint' in msg.topic:
-                print(f"[Bridge] Setpoint received: ({data.get('target_x')}, {data.get('target_y')})")
+                x = data.get('target_x')
+                y = data.get('target_y')
+                print(f"{Colors.BRIGHT_YELLOW}← Setpoint:{Colors.RESET} {Colors.BRIGHT_WHITE}({x}, {y}){Colors.RESET}")
 
         except Exception as e:
-            print(f"[Bridge] Error processing MQTT message: {e}")
+            print(f"{Colors.BRIGHT_RED}✖ Error processing MQTT message: {Colors.YELLOW}{e}{Colors.RESET}")
 
     def check_outgoing_messages(self):
         """Check for messages from C++ to publish via MQTT"""
@@ -151,39 +167,39 @@ class MQTTBridge:
                     os.remove(filepath)
 
                 except Exception as e:
-                    print(f"[Bridge] Error processing file {filepath}: {e}")
-                    # Remove corrupted file
+                    print(f"{Colors.BRIGHT_RED}✖ Error processing file {Colors.BRIGHT_YELLOW}{filepath}{Colors.RESET}: {e}")
                     try:
                         os.remove(filepath)
                     except:
                         pass
 
         except Exception as e:
-            print(f"[Bridge] Error checking outgoing messages: {e}")
+            print(f"{Colors.BRIGHT_RED}✖ Error checking outgoing messages: {Colors.YELLOW}{e}{Colors.RESET}")
 
     def run(self):
-        """Main bridge loop"""
-        print("=" * 50)
-        print("MQTT Bridge Running")
-        print("=" * 50)
-        print(f"Watching: {TO_MQTT_DIR}/ for outgoing messages")
-        print(f"Writing:  {FROM_MQTT_DIR}/ for incoming messages")
-        print("Press Ctrl+C to stop")
-        print("=" * 50)
+        print()
+        print(f"{Colors.BRIGHT_CYAN}╔{'═' * 58}╗{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}║{Colors.RESET} {Colors.BOLD}{Colors.BRIGHT_WHITE}MQTT Bridge Running{Colors.RESET}{' ' * 38}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}╠{'═' * 58}╣{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}║{Colors.RESET} {Colors.BRIGHT_BLUE}→{Colors.RESET} Watching: {Colors.BRIGHT_WHITE}{TO_MQTT_DIR}/{Colors.RESET}{' ' * (35 - len(TO_MQTT_DIR))}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}║{Colors.RESET} {Colors.BRIGHT_BLUE}←{Colors.RESET} Writing:  {Colors.BRIGHT_WHITE}{FROM_MQTT_DIR}/{Colors.RESET}{' ' * (35 - len(FROM_MQTT_DIR))}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}║{Colors.RESET}{' ' * 58}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}║{Colors.RESET} {Colors.DIM}Press Ctrl+C to stop{Colors.RESET}{' ' * 36}{Colors.BRIGHT_CYAN}║{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}╚{'═' * 58}╝{Colors.RESET}")
+        print()
 
         try:
             while self.running:
                 self.check_outgoing_messages()
-
                 time.sleep(0.01)
 
         except KeyboardInterrupt:
-            print("\n[Bridge] Shutting down...")
+            print(f"\n{Colors.BRIGHT_YELLOW}⏸ Shutting down...{Colors.RESET}")
 
         finally:
             self.mqtt_client.loop_stop()
             self.mqtt_client.disconnect()
-            print("[Bridge] Stopped")
+            print(f"{Colors.BRIGHT_GREEN}✓ Bridge stopped{Colors.RESET}\n")
 
 if __name__ == "__main__":
     bridge = MQTTBridge()

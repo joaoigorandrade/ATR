@@ -14,6 +14,34 @@ except ImportError:
     print("Warning: paho-mqtt not installed. Install with: pip install paho-mqtt")
     mqtt = None
 
+import platform
+
+THEME_BG = "#0b0c10"
+THEME_FG = "#e6e6e6"
+THEME_ACCENT = "#66fcf1"
+THEME_SUCCESS = "#45a29e"
+THEME_WARNING = "#ffd700"
+THEME_ERROR = "#ff383f"
+THEME_SURFACE = "#1f2833"
+THEME_SURFACE_LIGHT = "#2b3645"
+THEME_MANUAL = "#45a29e"
+THEME_AUTO = "#66fcf1"
+
+def get_system_font():
+    system = platform.system()
+    if system == "Windows":
+        return "Segoe UI"
+    elif system == "Darwin": # macOS
+        return "Helvetica Neue"
+    else:
+        return "Arial"
+
+FONT_NAME = get_system_font()
+FONT_MAIN = (FONT_NAME, 10)
+FONT_BOLD = (FONT_NAME, 10, 'bold')
+FONT_TITLE = (FONT_NAME, 12, 'bold')
+FONT_MONO = ('Consolas' if platform.system() == "Windows" else 'Menlo', 9)
+
 MQTT_BROKER_HOST = "localhost"
 MQTT_BROKER_PORT = 1883
 MQTT_TOPIC_SENSORS = "truck/+/sensors"
@@ -98,19 +126,20 @@ class TruckData:
 
     def get_display_color(self):
         if self.has_any_fault():
-            return 'red'
+            return THEME_ERROR
         if self.is_temperature_warning():
-            return 'orange'
+            return THEME_WARNING
         if self.mode == "AUTO":
-            return 'green'
-        return 'blue'
+            return THEME_AUTO
+        return THEME_MANUAL
 
 
 class MineManagementGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Mine Management - Stage 2")
+        self.root.title("Mine Management System")
         self.root.geometry("1400x800")
+        self.root.configure(bg=THEME_BG)
 
         self.trucks = {}
         self.selected_truck = None
@@ -129,6 +158,7 @@ class MineManagementGUI:
 
         self.last_key_time = 0
 
+        self.setup_styles()
         self.setup_gui()
 
         if mqtt:
@@ -137,9 +167,85 @@ class MineManagementGUI:
         self.update_gui()
         self.check_heartbeat()
 
+    def setup_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+
+        style.configure('.',
+                       background=THEME_BG,
+                       foreground=THEME_FG,
+                       borderwidth=0,
+                       focuscolor='none',
+                       font=(FONT_NAME, 10))
+
+        style.configure('TFrame',
+                       background=THEME_BG)
+
+        style.configure('Card.TFrame',
+                       background=THEME_SURFACE,
+                       relief='flat',
+                       borderwidth=0)
+
+        style.configure('TLabelframe',
+                       background=THEME_BG,
+                       foreground=THEME_ACCENT,
+                       bordercolor=THEME_SURFACE_LIGHT,
+                       borderwidth=1,
+                       relief='solid')
+
+        style.configure('TLabelframe.Label',
+                       background=THEME_BG,
+                       foreground=THEME_ACCENT,
+                       font=(FONT_NAME, 11, 'bold'))
+
+        style.configure('TLabel',
+                       background=THEME_BG,
+                       foreground=THEME_FG,
+                       font=(FONT_NAME, 10))
+
+        style.configure('Title.TLabel',
+                       font=(FONT_NAME, 12, 'bold'),
+                       foreground=THEME_ACCENT)
+
+        style.configure('TCombobox',
+                       fieldbackground=THEME_SURFACE,
+                       background=THEME_SURFACE,
+                       foreground=THEME_FG,
+                       arrowcolor=THEME_ACCENT,
+                       borderwidth=1,
+                       relief='flat')
+
+        style.configure('TButton',
+                       background=THEME_SURFACE,
+                       foreground=THEME_ACCENT,
+                       borderwidth=0,
+                       focuscolor='none',
+                       font=(FONT_NAME, 9, 'bold'),
+                       padding=(10, 8))
+
+        style.map('TButton',
+                 background=[('active', THEME_SURFACE_LIGHT), ('pressed', THEME_ACCENT)],
+                 foreground=[('active', THEME_ACCENT), ('pressed', THEME_BG)])
+
+        style.configure('Accent.TButton',
+                       background=THEME_ACCENT,
+                       foreground=THEME_BG)
+
+        style.map('Accent.TButton',
+                 background=[('active', '#45a29e'), ('pressed', '#338a86')],
+                 foreground=[('active', THEME_BG)])
+
+        style.configure('TEntry',
+                       fieldbackground=THEME_SURFACE,
+                       foreground=THEME_FG,
+                       insertcolor=THEME_ACCENT,
+                       borderwidth=1,
+                       relief='solid',
+                       bordercolor=THEME_SURFACE_LIGHT)
+
     def setup_gui(self):
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         left_frame = ttk.LabelFrame(main_frame, text="Mine Map", padding=10)
         left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
@@ -147,8 +253,8 @@ class MineManagementGUI:
         canvas_width = int(MAP_WIDTH_PIXELS / MAP_DISPLAY_SCALE)
         canvas_height = int(MAP_HEIGHT_PIXELS / MAP_DISPLAY_SCALE)
         self.canvas = tk.Canvas(left_frame, width=canvas_width, height=canvas_height,
-                               bg='#2C2C2C', highlightthickness=1, highlightbackground='gray')
-        self.canvas.pack()
+                               bg='#050608', highlightthickness=1, highlightbackground=THEME_ACCENT)
+        self.canvas.pack(padx=5, pady=5)
         self.canvas.bind('<Button-1>', self.on_map_click)
 
         self.draw_grid()
@@ -156,80 +262,82 @@ class MineManagementGUI:
         right_frame = ttk.Frame(main_frame)
         right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
 
-        status_frame = ttk.LabelFrame(right_frame, text="System Status", padding=10)
-        status_frame.pack(fill=tk.X, pady=5)
+        status_frame = ttk.LabelFrame(right_frame, text="System Status", padding=15)
+        status_frame.pack(fill=tk.X, pady=(0, 10))
 
-        self.status_label = ttk.Label(status_frame, text="MQTT: Disconnected", foreground="red")
-        self.status_label.pack()
+        self.status_label = ttk.Label(status_frame, text="MQTT: Disconnected", foreground=THEME_ERROR, font=(FONT_NAME, 10, 'bold'))
+        self.status_label.pack(pady=3)
 
-        self.truck_count_label = ttk.Label(status_frame, text="Trucks: 0")
-        self.truck_count_label.pack()
+        self.truck_count_label = ttk.Label(status_frame, text="Trucks: 0", font=(FONT_NAME, 10))
+        self.truck_count_label.pack(pady=3)
 
-        self.fps_label = ttk.Label(status_frame, text="FPS: 0.0")
-        self.fps_label.pack()
+        self.fps_label = ttk.Label(status_frame, text="FPS: 0.0", font=(FONT_NAME, 10))
+        self.fps_label.pack(pady=3)
 
-        self.avg_update_age_label = ttk.Label(status_frame, text="Avg Update Age: 0.0s")
-        self.avg_update_age_label.pack()
+        self.avg_update_age_label = ttk.Label(status_frame, text="Avg Update Age: 0.0s", font=(FONT_NAME, 10))
+        self.avg_update_age_label.pack(pady=3)
 
-        select_frame = ttk.LabelFrame(right_frame, text="Truck Selection", padding=10)
-        select_frame.pack(fill=tk.X, pady=5)
+        select_frame = ttk.LabelFrame(right_frame, text="Truck Selection", padding=15)
+        select_frame.pack(fill=tk.X, pady=(0, 10))
 
-        self.truck_combo = ttk.Combobox(select_frame, state='readonly', width=20)
-        self.truck_combo.pack()
+        self.truck_combo = ttk.Combobox(select_frame, state='readonly', width=25, font=(FONT_NAME, 10))
+        self.truck_combo.pack(pady=5)
         self.truck_combo.bind('<<ComboboxSelected>>', self.on_truck_selected)
 
-        info_frame = ttk.LabelFrame(right_frame, text="Truck Information", padding=10)
-        info_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        info_frame = ttk.LabelFrame(right_frame, text="Truck Information", padding=15)
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
-        self.info_text = tk.Text(info_frame, height=15, width=35, state='disabled')
-        self.info_text.pack(fill=tk.BOTH, expand=True)
+        self.info_text = tk.Text(info_frame, height=15, width=35, state='disabled',
+                                bg=THEME_SURFACE, fg=THEME_FG, insertbackground=THEME_ACCENT,
+                                font=(FONT_MONO[0], 9), relief='flat', borderwidth=0,
+                                selectbackground=THEME_ACCENT, selectforeground=THEME_BG)
+        self.info_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        control_frame = ttk.LabelFrame(right_frame, text="Truck Control", padding=10)
-        control_frame.pack(fill=tk.X, pady=5)
+        control_frame = ttk.LabelFrame(right_frame, text="Truck Control", padding=15)
+        control_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Dashboard display
         dash_frame = ttk.Frame(control_frame)
-        dash_frame.pack(fill=tk.X, pady=5)
-        
-        v_frame = ttk.Frame(dash_frame)
-        v_frame.pack(side=tk.LEFT, expand=True)
-        ttk.Label(v_frame, text="Velocity").pack()
-        self.lbl_velocity = ttk.Label(v_frame, text="0%", font=('Arial', 14, 'bold'))
-        self.lbl_velocity.pack()
-        
-        s_frame = ttk.Frame(dash_frame)
-        s_frame.pack(side=tk.LEFT, expand=True)
-        ttk.Label(s_frame, text="Steering").pack()
-        self.lbl_steering = ttk.Label(s_frame, text="0°", font=('Arial', 14, 'bold'))
-        self.lbl_steering.pack()
+        dash_frame.pack(fill=tk.X, pady=(0, 10))
+
+        v_frame = ttk.Frame(dash_frame, style='Card.TFrame')
+        v_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 5))
+        ttk.Label(v_frame, text="VELOCITY", font=(FONT_NAME, 8, 'bold'), foreground=THEME_ACCENT, background=THEME_SURFACE).pack(pady=(8, 2))
+        self.lbl_velocity = ttk.Label(v_frame, text="0%", font=(FONT_NAME, 18, 'bold'), foreground=THEME_FG, background=THEME_SURFACE)
+        self.lbl_velocity.pack(pady=(0, 8))
+
+        s_frame = ttk.Frame(dash_frame, style='Card.TFrame')
+        s_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(5, 0))
+        ttk.Label(s_frame, text="STEERING", font=(FONT_NAME, 8, 'bold'), foreground=THEME_ACCENT, background=THEME_SURFACE).pack(pady=(8, 2))
+        self.lbl_steering = ttk.Label(s_frame, text="0°", font=(FONT_NAME, 18, 'bold'), foreground=THEME_FG, background=THEME_SURFACE)
+        self.lbl_steering.pack(pady=(0, 8))
 
         waypoint_frame = ttk.Frame(control_frame)
-        waypoint_frame.pack(fill=tk.X, pady=5)
+        waypoint_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Label(waypoint_frame, text="Set Waypoint:").pack()
-        ttk.Label(waypoint_frame, text="(Click on map or enter coordinates)").pack()
+        ttk.Label(waypoint_frame, text="Set Waypoint", font=(FONT_NAME, 10, 'bold'), foreground=THEME_ACCENT).pack(pady=(0, 2))
+        ttk.Label(waypoint_frame, text="(Click map or enter coordinates)", font=(FONT_NAME, 8), foreground=THEME_FG).pack(pady=(0, 5))
 
         coord_frame = ttk.Frame(control_frame)
-        coord_frame.pack(fill=tk.X, pady=5)
+        coord_frame.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Label(coord_frame, text="X:").grid(row=0, column=0)
-        self.waypoint_x = ttk.Entry(coord_frame, width=8)
-        self.waypoint_x.grid(row=0, column=1, padx=5)
+        ttk.Label(coord_frame, text="X:", font=(FONT_NAME, 9)).grid(row=0, column=0, padx=(0, 5))
+        self.waypoint_x = ttk.Entry(coord_frame, width=10, font=(FONT_NAME, 9))
+        self.waypoint_x.grid(row=0, column=1, padx=(0, 10))
 
-        ttk.Label(coord_frame, text="Y:").grid(row=0, column=2)
-        self.waypoint_y = ttk.Entry(coord_frame, width=8)
-        self.waypoint_y.grid(row=0, column=3, padx=5)
+        ttk.Label(coord_frame, text="Y:", font=(FONT_NAME, 9)).grid(row=0, column=2, padx=(0, 5))
+        self.waypoint_y = ttk.Entry(coord_frame, width=10, font=(FONT_NAME, 9))
+        self.waypoint_y.grid(row=0, column=3)
 
-        ttk.Button(control_frame, text="Send Waypoint", command=self.send_waypoint).pack(pady=5)
+        ttk.Button(control_frame, text="Send Waypoint", command=self.send_waypoint, style='Accent.TButton').pack(fill=tk.X, pady=(0, 10))
 
         mode_frame = ttk.Frame(control_frame)
-        mode_frame.pack(fill=tk.X, pady=5)
+        mode_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Button(mode_frame, text="Manual Mode", command=lambda: self.send_mode_command(False)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(mode_frame, text="Auto Mode", command=lambda: self.send_mode_command(True)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(mode_frame, text="Rearm Fault", command=self.send_rearm_command).pack(side=tk.LEFT, padx=2)
+        ttk.Button(mode_frame, text="Manual", command=lambda: self.send_mode_command(False)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 3))
+        ttk.Button(mode_frame, text="Auto", command=lambda: self.send_mode_command(True)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 3))
+        ttk.Button(mode_frame, text="Rearm", command=self.send_rearm_command).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(3, 0))
 
-        ttk.Label(control_frame, text="Manual Controls: WASD / Arrows / Space", font=('Arial', 9, 'italic')).pack(pady=5)
+        ttk.Label(control_frame, text="Manual: WASD / Arrows / Space", font=(FONT_NAME, 8, 'italic'), foreground=THEME_FG).pack(pady=(0, 5))
 
         main_frame.columnconfigure(0, weight=2)
         main_frame.columnconfigure(1, weight=1)
@@ -244,10 +352,10 @@ class MineManagementGUI:
         canvas_height = int(MAP_HEIGHT_PIXELS / MAP_DISPLAY_SCALE)
 
         for x in range(0, canvas_width, int(grid_size)):
-            self.canvas.create_line(x, 0, x, canvas_height, fill='#404040', dash=(2, 4))
+            self.canvas.create_line(x, 0, x, canvas_height, fill='#1f2833', width=1, dash=(2, 4))
 
         for y in range(0, canvas_height, int(grid_size)):
-            self.canvas.create_line(0, y, canvas_width, y, fill='#404040', dash=(2, 4))
+            self.canvas.create_line(0, y, canvas_width, y, fill='#1f2833', width=1, dash=(2, 4))
 
     def setup_mqtt(self):
         try:
@@ -260,13 +368,13 @@ class MineManagementGUI:
             print(f"[MQTT] Connecting to broker at {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
         except Exception as e:
             print(f"[MQTT] Connection failed: {e}")
-            self.status_label.config(text=f"MQTT: Error - {e}", foreground="red")
+            self.status_label.config(text=f"MQTT: Error", foreground=THEME_ERROR)
 
     def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
             print("[MQTT] Connected successfully")
-            self.status_label.config(text="MQTT: Connected", foreground="green")
+            self.status_label.config(text="MQTT: Connected", foreground=THEME_SUCCESS)
 
             client.subscribe(MQTT_TOPIC_SENSORS)
             client.subscribe(MQTT_TOPIC_STATE)
@@ -274,7 +382,7 @@ class MineManagementGUI:
             print("[MQTT] Subscribed to truck topics (sensors, state, commands)")
         else:
             print(f"[MQTT] Connection failed with code {rc}")
-            self.status_label.config(text=f"MQTT: Failed (code {rc})", foreground="red")
+            self.status_label.config(text=f"MQTT: Failed ({rc})", foreground=THEME_ERROR)
 
     def on_mqtt_message(self, client, userdata, msg):
         try:
@@ -455,16 +563,16 @@ class MineManagementGUI:
                 cy - WAYPOINT_DISPLAY_RADIUS,
                 cx + WAYPOINT_DISPLAY_RADIUS,
                 cy + WAYPOINT_DISPLAY_RADIUS,
-                fill='yellow',
-                outline='orange',
-                width=2,
+                fill=THEME_WARNING,
+                outline=THEME_ACCENT,
+                width=3,
                 tags='waypoint'
             )
             text_id = self.canvas.create_text(
                 cx, cy - 15,
                 text="TARGET",
-                fill='yellow',
-                font=('Arial', 10, 'bold'),
+                fill=THEME_WARNING,
+                font=('Segoe UI', 10, 'bold'),
                 tags='waypoint'
             )
             self.waypoint_item_ids = {'oval': oval_id, 'text': text_id}
@@ -494,8 +602,9 @@ class MineManagementGUI:
         if 'trail' not in truck_items:
             trail_id = self.canvas.create_line(
                 *trail_coords,
-                fill='cyan',
-                width=1,
+                fill=THEME_ACCENT,
+                width=2,
+                smooth=True,
                 tags='trail'
             )
             truck_items['trail'] = trail_id
@@ -535,8 +644,10 @@ class MineManagementGUI:
         if 'direction' not in truck_items:
             direction_id = self.canvas.create_line(
                 x, y, end_x, end_y,
-                fill='yellow',
-                width=2,
+                fill=THEME_FG,
+                width=3,
+                arrow=tk.LAST,
+                arrowshape=(8, 10, 4),
                 tags='truck'
             )
             truck_items['direction'] = direction_id
@@ -544,21 +655,21 @@ class MineManagementGUI:
             self.canvas.coords(truck_items['direction'], x, y, end_x, end_y)
 
     def draw_truck_label(self, truck, truck_items, x, y):
-        label_text = f"T{truck.id}"
+        label_text = f"TRUCK {truck.id}"
         if truck.arrived:
             label_text += " ✓"
 
         if 'label' not in truck_items:
             label_id = self.canvas.create_text(
-                x, y - TRUCK_DISPLAY_SIZE - 10,
+                x, y - TRUCK_DISPLAY_SIZE - 12,
                 text=label_text,
-                fill='white',
-                font=('Arial', 10, 'bold'),
+                fill=THEME_FG,
+                font=('Segoe UI', 9, 'bold'),
                 tags='truck'
             )
             truck_items['label'] = label_id
         else:
-            self.canvas.coords(truck_items['label'], x, y - TRUCK_DISPLAY_SIZE - 10)
+            self.canvas.coords(truck_items['label'], x, y - TRUCK_DISPLAY_SIZE - 12)
             self.canvas.itemconfig(truck_items['label'], text=label_text)
 
     def draw_trucks(self):
@@ -675,7 +786,7 @@ class MineManagementGUI:
                     count += 1
             if count > 0:
                 avg_age = total_age / count
-                color = "green" if avg_age < 0.1 else ("orange" if avg_age < 0.5 else "red")
+                color = THEME_SUCCESS if avg_age < 0.1 else (THEME_WARNING if avg_age < 0.5 else THEME_ERROR)
                 self.avg_update_age_label.config(
                     text=f"Avg Update Age: {avg_age:.3f}s",
                     foreground=color
