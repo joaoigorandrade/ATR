@@ -70,6 +70,9 @@ class MQTTBridge:
 
         # Clean old files
         self.clean_directories()
+        
+        # Track truck positions for collision avoidance support
+        self.truck_positions = {}
 
         # MQTT setup
         self.mqtt_client = mqtt.Client(client_id="mqtt_bridge")
@@ -135,9 +138,70 @@ class MQTTBridge:
                 x = data.get('target_x')
                 y = data.get('target_y')
                 print(f"{Colors.BRIGHT_YELLOW}← Setpoint:{Colors.RESET} {Colors.BRIGHT_WHITE}({x}, {y}){Colors.RESET}")
+            
+            # Update truck positions and generate obstacle files
+            if 'sensors' in msg.topic:
+                try:
+                    # Extract truck ID from topic "truck/{id}/sensors"
+                    parts = msg.topic.split('/')
+                    if len(parts) >= 2:
+                        truck_id = int(parts[1])
+                        self.truck_positions[truck_id] = {
+                            'x': data.get('position_x', 0),
+                            'y': data.get('position_y', 0),
+                            'id': truck_id
+                        }
+                        self.generate_obstacle_files(truck_id)
+                except ValueError:
+                    pass
 
         except Exception as e:
             print(f"{Colors.BRIGHT_RED}✖ Error processing MQTT message: {Colors.YELLOW}{e}{Colors.RESET}")
+
+    def generate_obstacle_files(self, source_truck_id):
+        """Generate obstacle files for all other trucks"""
+        timestamp = int(time.time() * 1000)
+        
+        # For each known truck
+        for dest_truck_id in self.truck_positions.keys():
+            # Don't generate file for the source truck itself
+            # (it knows where it is, and we are generating files FOR dest_truck_id)
+            if dest_truck_id == source_truck_id:
+                continue
+                
+            # But wait, we want to update EVERYONE about the NEW position of source_truck_id?
+            # Or update source_truck_id about EVERYONE ELSE?
+            
+            # Strategy: When we receive an update from X, we assume X moved.
+            # We should notify everyone else about X's new position?
+            # OR we can just dump the 'world state' to everyone.
+            
+            # Let's generate a file for `dest_truck_id` that contains ALL other trucks.
+            
+            obstacles = []
+            for other_id, pos in self.truck_positions.items():
+                if other_id != dest_truck_id:
+                    obstacles.append(pos)
+            
+            if not obstacles:
+                continue
+                
+            filename = f"{timestamp}_truck_{dest_truck_id}_obstacles.json"
+            filepath = os.path.join(FROM_MQTT_DIR, filename)
+            
+            data = {
+                "topic": f"truck/{dest_truck_id}/obstacles",
+                "payload": {
+                    "obstacles": obstacles
+                },
+                "timestamp": timestamp
+            }
+            
+            try:
+                with open(filepath, 'w') as f:
+                    json.dump(data, f)
+            except Exception as e:
+                print(f"Error writing obstacle file: {e}")
 
     def check_outgoing_messages(self):
         """Check for messages from C++ to publish via MQTT"""

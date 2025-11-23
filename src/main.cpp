@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cmath>
 #include "logger.h"
 #include "circular_buffer.h"
 #include "sensor_processing.h"
@@ -267,6 +268,51 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
     return false;
 }
 
+bool read_obstacles_from_bridge(std::vector<Obstacle>& obstacles) {
+    const std::string bridge_dir = "bridge/from_mqtt";
+    std::vector<fs::path> obstacle_files;
+    std::string search_pattern = "truck_" + std::to_string(g_truck_id) + "_obstacles";
+
+    try {
+        if (!fs::exists(bridge_dir)) return false;
+
+        for (const auto& entry : fs::directory_iterator(bridge_dir)) {
+            if (entry.path().extension() == ".json" &&
+                entry.path().filename().string().find(search_pattern) != std::string::npos) {
+                obstacle_files.push_back(entry.path());
+            }
+        }
+
+        if (obstacle_files.empty()) return false;
+
+        std::sort(obstacle_files.begin(), obstacle_files.end());
+        const auto& newest_file = obstacle_files.back();
+        bool success = false;
+
+        std::ifstream file(newest_file);
+        if (file.is_open()) {
+            json j = json::parse(file);
+            file.close();
+            if (j.contains("payload") && j["payload"].contains("obstacles")) {
+                obstacles.clear();
+                for (const auto& item : j["payload"]["obstacles"]) {
+                    Obstacle obs;
+                    obs.id = item.value("id", 0);
+                    obs.x = item.value("x", 0);
+                    obs.y = item.value("y", 0);
+                    obstacles.push_back(obs);
+                }
+                success = true;
+            }
+        }
+        
+        for (const auto& path : obstacle_files) {
+            fs::remove(path);
+        }
+        return success;
+    } catch (...) { return false; }
+}
+
 
 void write_actuator_commands_to_bridge(int truck_id, const ActuatorOutput& output) {
     const std::string bridge_dir = "bridge/to_mqtt";
@@ -475,6 +521,11 @@ int main(int argc, char* argv[]) {
                                               bridge_setpoint.target_speed);
         }
 
+        // Read obstacles
+        std::vector<Obstacle> obstacles;
+        if (read_obstacles_from_bridge(obstacles)) {
+            route_planner.update_obstacles(obstacles);
+        }
 
         TruckState state = command_task.get_state();
         nav_task.set_truck_state(state);
@@ -484,10 +535,16 @@ int main(int argc, char* argv[]) {
 
         SensorData current_sensor = buffer.peek_latest();
 
-
-        NavigationSetpoint setpoint = route_planner.get_setpoint();
-        setpoint.target_angle = route_planner.calculate_target_angle(
+        // Use adjusted setpoint for obstacle avoidance
+        NavigationSetpoint setpoint = route_planner.calculate_adjusted_setpoint(
             current_sensor.position_x, current_sensor.position_y);
+        
+        // Calculate target angle based on adjusted setpoint
+        int dx = setpoint.target_position_x - current_sensor.position_x;
+        int dy = setpoint.target_position_y - current_sensor.position_y;
+        double angle_rad = std::atan2(dy, dx);
+        setpoint.target_angle = static_cast<int>(angle_rad * 180.0 / M_PI);
+
         nav_task.set_setpoint(setpoint);
 
         ActuatorOutput nav_output = nav_task.get_output();
