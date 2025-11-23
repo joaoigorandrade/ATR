@@ -116,6 +116,13 @@ public:
      */
     void set_navigation_output(const ActuatorOutput& output);
 
+    /**
+     * @brief Handle fault updates from Fault Monitoring task
+     *
+     * @param type Current fault type
+     */
+    void on_fault_update(FaultType type);
+
 private:
     /**
      * @brief Main task loop
@@ -126,14 +133,6 @@ private:
      * @brief Process operator commands and update state
      */
     void process_commands();
-
-    /**
-     * @brief Check for fault conditions in sensor data
-     *
-     * @param data Sensor data to check
-     * @return true if fault detected
-     */
-    bool check_faults(const SensorData& data);
 
     /**
      * @brief Calculate actuator outputs based on current mode and commands
@@ -156,6 +155,7 @@ private:
 
     bool command_pending_;              // Flag for new command
     bool fault_rearmed_;                // Flag for fault rearm action
+    FaultType latest_fault_type_;       // Current fault status from monitoring
 
     std::chrono::steady_clock::time_point last_command_time_; // Timestamp of last command
 

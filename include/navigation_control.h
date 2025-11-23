@@ -88,6 +88,13 @@ public:
     void set_truck_state(const TruckState& state);
 
     /**
+     * @brief Handle fault updates from Fault Monitoring task
+     *
+     * @param type Current fault type
+     */
+    void on_fault_update(FaultType type);
+
+    /**
      * @brief Get current control output
      *
      * @return ActuatorOutput Current controller outputs

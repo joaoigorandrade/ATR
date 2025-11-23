@@ -76,9 +76,7 @@ void FaultMonitoring::task_loop() {
             std::lock_guard<std::mutex> lock(fault_mutex_);
             if (fault != current_fault_) {
                 current_fault_ = fault;
-                if (fault != FaultType::NONE) {
-                    notify_fault_event(fault, sensor_data);
-                }
+                notify_fault_event(fault, sensor_data);
             }
         }
 

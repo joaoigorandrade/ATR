@@ -81,6 +81,17 @@ void NavigationControl::set_truck_state(const TruckState& state) {
     truck_state_ = state;
 }
 
+void NavigationControl::on_fault_update(FaultType type) {
+    std::lock_guard<std::mutex> lock(control_mutex_);
+    if (type != FaultType::NONE) {
+        output_.velocity = 0;
+        // Keep steering as is or center it? Typically safe state is stop.
+        // We won't change steering to avoid sudden jerks, just kill velocity.
+        truck_state_.fault = true; // Force internal state too
+        LOG_CRIT(NC) << "event" << "fault_stop" << "type" << static_cast<int>(type);
+    }
+}
+
 ActuatorOutput NavigationControl::get_output() const {
     std::lock_guard<std::mutex> lock(control_mutex_);
     return output_;

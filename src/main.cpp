@@ -431,6 +431,20 @@ int main(int argc, char* argv[]) {
 
     LOG_DEBUG(MAIN) << "event" << "tasks_created";
 
+    fault_task.register_fault_callback(
+        [&](FaultType type, const SensorData& data) {
+            command_task.on_fault_update(type);
+            nav_task.on_fault_update(type);
+            
+            std::string desc = "Fault detected: " + std::to_string(static_cast<int>(type));
+            if (type == FaultType::NONE) {
+                desc = "Fault cleared";
+            }
+            data_collector.log_event(type == FaultType::NONE ? "OK" : "FAULT", 
+                                   data.position_x, data.position_y, desc);
+        }
+    );
+
     Watchdog watchdog(WATCHDOG_CHECK_PERIOD_MS);
     Watchdog::set_instance(&watchdog);
     watchdog.register_task("SensorProcessing", SENSOR_PROCESSING_WATCHDOG_TIMEOUT_MS);

@@ -16,6 +16,7 @@ CommandLogic::CommandLogic(CircularBuffer& buffer, int period_ms, PerformanceMon
     current_state_.fault = false;
     current_state_.automatic = false;
     latest_sensor_data_ = {};
+    latest_fault_type_ = FaultType::NONE;
 
     LOG_INFO(CL) << "event" << "init" << "period_ms" << period_ms_;
 }
@@ -65,6 +66,20 @@ void CommandLogic::set_command(const OperatorCommand& cmd) {
     last_command_time_ = std::chrono::steady_clock::now();
 }
 
+void CommandLogic::on_fault_update(FaultType type) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    latest_fault_type_ = type;
+    
+    if (type != FaultType::NONE) {
+        if (!current_state_.fault) {
+            LOG_CRIT(CL) << "event" << "fault_detected_ext" << "type" << static_cast<int>(type);
+        }
+        current_state_.fault = true;
+        current_state_.automatic = false;
+        fault_rearmed_ = false;
+    }
+}
+
 TruckState CommandLogic::get_state() const {
     std::lock_guard<std::mutex> lock(state_mutex_);
     return current_state_;
@@ -96,20 +111,19 @@ void CommandLogic::task_loop() {
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
             latest_sensor_data_ = sensor_data;
-            bool fault_detected = check_faults(sensor_data);
+            
             if (command_pending_) {
                 process_commands();
                 command_pending_ = false;
             }
-            if (fault_detected) {
-                if (!current_state_.fault) {
-                    LOG_CRIT(CL) << "event" << "fault_detect";
+            
+            if (current_state_.fault && fault_rearmed_) {
+                if (latest_fault_type_ == FaultType::NONE) {
+                    LOG_INFO(CL) << "event" << "fault_clear";
+                    current_state_.fault = false;
+                } else {
+                    LOG_WARN(CL) << "event" << "rearm_failed" << "active_fault" << static_cast<int>(latest_fault_type_);
                 }
-                current_state_.fault = true;
-                fault_rearmed_ = false;
-            } else if (current_state_.fault && fault_rearmed_) {
-                LOG_INFO(CL) << "event" << "fault_clear";
-                current_state_.fault = false;
                 fault_rearmed_ = false;
             }
             calculate_actuator_outputs();
@@ -144,19 +158,8 @@ void CommandLogic::process_commands() {
     }
     if (pending_command_.rearm && current_state_.fault) {
         fault_rearmed_ = true;
-        LOG_INFO(CL) << "event" << "rearm_ack";
+        LOG_INFO(CL) << "event" << "rearm_req";
     }
-}
-
-bool CommandLogic::check_faults(const SensorData& data) {
-    if (data.temperature > CRITICAL_TEMPERATURE_THRESHOLD) {
-        return true;
-    }
-    if (data.fault_electrical || data.fault_hydraulic) {
-        return true;
-    }
-
-    return false;
 }
 
 void CommandLogic::calculate_actuator_outputs() {
