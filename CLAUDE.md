@@ -13,6 +13,7 @@ All code generated or modified in this repository must adhere to the following s
   * Code must be **self-documenting**.
   * If logic is complex enough to require a comment, refactor it into a clearly named function or variable.
   * *Exception:* CMakeLists.txt or configuration files where syntax requires specific delimiters for functional reasons, but avoid explanatory text.
+  * **IMPORTANT**: Header files (`.h`) must also follow the no-comments policy. Use self-documenting struct/class names and member variable names instead.
 
 ### 2\. Comprehensibility
 
@@ -48,6 +49,17 @@ All code generated or modified in this repository must adhere to the following s
 ## Project Overview
 
 This is an **Autonomous Mining Truck Control System** - a real-time embedded system implementing concurrent programming concepts. The system integrates onboard truck control (C++17), MQTT-based communication (Python bridge), mine simulation GUI (Pygame), and central mine management GUI (Tkinter).
+
+**System Features:**
+
+  * **Multi-truck support**: Run multiple truck instances simultaneously with unique IDs
+  * **Dual-mode operation**: Manual keyboard control and autonomous waypoint navigation
+  * **Real-time monitoring**: Performance metrics, watchdog health monitoring, structured logging
+  * **Fault management**: Temperature alerts, electrical/hydraulic fault detection, rearm capability
+  * **GUI Components**:
+    - Mine Simulation (Pygame): Physics simulation, sensor data generation, fault injection
+    - Mine Management (Tkinter): Fleet monitoring, waypoint control, real-time telemetry
+  * **File-based IPC**: JSON bridge between C++ and MQTT for platform independence
 
 ## Build and Development Commands
 
@@ -237,12 +249,12 @@ class Task {
 
 **Task Periods:**
 
-  * `SensorProcessing`: 100ms (10 Hz)
-  * `CommandLogic`: 50ms (20 Hz)
-  * `FaultMonitoring`: 100ms (10 Hz)
-  * `NavigationControl`: 50ms (20 Hz)
-  * `DataCollector`: 1000ms (1 Hz)
-  * `LocalInterface`: 2000ms (0.5 Hz)
+  * `SensorProcessing`: 20ms (50 Hz)
+  * `CommandLogic`: 10ms (100 Hz)
+  * `FaultMonitoring`: 20ms (50 Hz)
+  * `NavigationControl`: 10ms (100 Hz)
+  * `DataCollector`: 100ms (10 Hz)
+  * `LocalInterface`: 100ms (10 Hz)
 
 ### Logging System (AI-Optimized)
 
@@ -261,19 +273,22 @@ LOG_CRIT(FM) << "event" << "fault" << "type" << "TEMP_CRT" << "temp" << 125;
 
 ### Navigation Control
 
-**Two Independent PID Controllers:**
+**Proportional Control System:**
 
-1.  **Speed Controller**: Maintains target velocity.
-2.  **Angle Controller**: Maintains target heading.
+1.  **Speed Controller**: Proportional controller based on distance to target (gain: 0.5).
+2.  **Angle Controller**: Direct heading control toward target waypoint.
+
+**Key Parameters:**
+
+  * Arrival radius: 5 units from target position
+  * Departure threshold: 10 units (hysteresis to prevent oscillation)
+  * Heading deadband: 5° (prevents jitter)
+  * Max speed: 100%, Min speed: 10%
+  * Max turn rate: 5° per cycle
 
 **Bumpless Transfer:**
 
-  * When switching manual to automatic, setpoint is initialized to current value.
-
-**Arrival Detection:**
-
-  * Within 5 units of target position.
-  * Within ±5° of target angle.
+  * When switching manual to automatic, setpoint is initialized to current position and heading.
 
 ### State Machine (Command Logic)
 
@@ -328,3 +343,34 @@ Fault cleared: cmd.rearm (requires fault condition resolution)
 5.  Modifying buffer size without updating consumers.
 6.  Not registering task with watchdog.
 7.  Hardcoding task periods.
+
+## Multi-Truck Support
+
+The system supports multiple concurrent trucks through truck ID-based routing:
+
+**Truck ID Management:**
+
+  * Truck ID is passed as command-line argument: `./build/truck_control <truck_id>`
+  * Default truck ID is 1 if not specified
+  * Each truck maintains isolated control state and processes
+
+**MQTT Topics per Truck:**
+
+  * Sensors: `truck/{id}/sensors`
+  * Commands: `truck/{id}/commands`
+  * State: `truck/{id}/state`
+  * Setpoint: `truck/{id}/setpoint`
+
+**Bridge File Naming:**
+
+  * Incoming: `{timestamp}_truck_{id}_sensors.json`, `{timestamp}_truck_{id}_commands.json`, `{timestamp}_truck_{id}_setpoint.json`
+  * Outgoing: `{timestamp}_truck_{id}_state.json`, `{timestamp}_truck_{id}_commands.json`
+  * Files are automatically sorted by timestamp; only newest is processed
+
+**Manual Mode Enhancements:**
+
+  * Manual steering commands accumulate to prevent runaway behavior
+  * Safety timeout: 1000ms - velocity zeroed if no commands received
+  * Steering commands are reset after processing to prevent accumulation
+  * Steering limits: -180° to +180°
+  * Velocity limits: -100% to +100%
