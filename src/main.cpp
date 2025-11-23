@@ -41,7 +41,7 @@ constexpr int NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS = 30;
 constexpr int DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS = 300;
 
 constexpr int SENSOR_FILTER_ORDER = 5;
-constexpr int TRUCK_ID = 1;
+int g_truck_id = 1;
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -66,6 +66,7 @@ void signal_handler(int signal) {
 bool read_sensor_data_from_bridge(RawSensorData& data) {
     const std::string bridge_dir = "bridge/from_mqtt";
     std::vector<fs::path> sensor_files;
+    std::string search_pattern = "truck_" + std::to_string(g_truck_id) + "_sensors";
 
     try {
         if (!fs::exists(bridge_dir)) {
@@ -75,7 +76,7 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
         // Collect all sensor files
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
-                entry.path().filename().string().find("sensors") != std::string::npos) {
+                entry.path().filename().string().find(search_pattern) != std::string::npos) {
                 sensor_files.push_back(entry.path());
             }
         }
@@ -125,6 +126,7 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
 bool read_commands_from_bridge(OperatorCommand& cmd) {
     const std::string bridge_dir = "bridge/from_mqtt";
     std::vector<fs::path> command_files;
+    std::string search_pattern = "truck_" + std::to_string(g_truck_id) + "_commands";
 
     try {
         if (!fs::exists(bridge_dir)) {
@@ -133,7 +135,7 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
 
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
-                entry.path().filename().string().find("commands") != std::string::npos) {
+                entry.path().filename().string().find(search_pattern) != std::string::npos) {
                 command_files.push_back(entry.path());
             }
         }
@@ -208,6 +210,7 @@ bool read_commands_from_bridge(OperatorCommand& cmd) {
 bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
     const std::string bridge_dir = "bridge/from_mqtt";
     std::vector<fs::path> setpoint_files;
+    std::string search_pattern = "truck_" + std::to_string(g_truck_id) + "_setpoint";
 
     try {
         if (!fs::exists(bridge_dir)) {
@@ -216,7 +219,7 @@ bool read_setpoint_from_bridge(NavigationSetpoint& setpoint) {
 
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
-                entry.path().filename().string().find("setpoint") != std::string::npos) {
+                entry.path().filename().string().find(search_pattern) != std::string::npos) {
                 setpoint_files.push_back(entry.path());
             }
         }
@@ -332,20 +335,27 @@ void write_truck_state_to_bridge(int truck_id, const TruckState& state) {
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
 
     Logger::init(Logger::Level::INFO);
 
+    if (argc > 1) {
+        try {
+            g_truck_id = std::stoi(argv[1]);
+        } catch (...) {
+            std::cerr << "Invalid truck ID provided, using default: " << g_truck_id << std::endl;
+        }
+    }
 
     std::signal(SIGINT, signal_handler);
 
     std::cout << "========================================" << std::endl;
     std::cout << "Autonomous Mining Truck Control System" << std::endl;
     std::cout << "Stage 2: Full Integration" << std::endl;
-    std::cout << "Real-Time Automation Project" << std::endl;
+    std::cout << "Truck ID: " << g_truck_id << std::endl;
     std::cout << "========================================" << std::endl;
 
-    LOG_INFO(MAIN) << "event" << "system_start" << "stage" << 2;
+    LOG_INFO(MAIN) << "event" << "system_start" << "stage" << 2 << "truck_id" << g_truck_id;
 
     PerformanceMonitor perf_monitor;
     global_perf_monitor = &perf_monitor;
@@ -353,7 +363,7 @@ int main() {
     perf_monitor.register_task("SensorProcessing", SENSOR_PROCESSING_PERIOD_MS);
     perf_monitor.register_task("CommandLogic", COMMAND_LOGIC_PERIOD_MS);
     perf_monitor.register_task("FaultMonitoring", FAULT_MONITORING_PERIOD_MS);
-    perf_monitor.register_task("NavigationControl", NAVIGATION_CONTROL_PERIOD_MS);
+    perf_monitor.register_task("NavigationControl",NAVIGATION_CONTROL_PERIOD_MS);
     perf_monitor.register_task("DataCollector", DATA_COLLECTOR_PERIOD_MS);
     perf_monitor.register_task("LocalInterface", LOCAL_INTERFACE_PERIOD_MS);
 
@@ -370,7 +380,7 @@ int main() {
     FaultMonitoring fault_task(buffer, FAULT_MONITORING_PERIOD_MS, &perf_monitor);
     NavigationControl nav_task(buffer, NAVIGATION_CONTROL_PERIOD_MS, &perf_monitor);
     RoutePlanning route_planner;
-    DataCollector data_collector(buffer, TRUCK_ID, DATA_COLLECTOR_PERIOD_MS, &perf_monitor);
+    DataCollector data_collector(buffer, g_truck_id, DATA_COLLECTOR_PERIOD_MS, &perf_monitor);
     LocalInterface local_interface(buffer, LOCAL_INTERFACE_PERIOD_MS, &perf_monitor);
 
     LOG_DEBUG(MAIN) << "event" << "tasks_created";
@@ -380,7 +390,7 @@ int main() {
     watchdog.register_task("SensorProcessing", SENSOR_PROCESSING_WATCHDOG_TIMEOUT_MS);
     watchdog.register_task("CommandLogic", COMMAND_LOGIC_WATCHDOG_TIMEOUT_MS);
     watchdog.register_task("FaultMonitoring", FAULT_MONITORING_WATCHDOG_TIMEOUT_MS);
-    watchdog.register_task("NavigationControl", NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS);
+    watchdog.register_task("NavigationControl",NAVIGATION_CONTROL_WATCHDOG_TIMEOUT_MS);
     watchdog.register_task("DataCollector", DATA_COLLECTOR_WATCHDOG_TIMEOUT_MS);
 
     LOG_DEBUG(MAIN) << "event" << "watchdog_configured" << "tasks" << watchdog.get_task_count();
@@ -392,7 +402,7 @@ int main() {
 
 
     RawSensorData initial_data;
-    initial_data.position_x = 100;
+    initial_data.position_x = 100 + (g_truck_id * 50); // Offset initial position
     initial_data.position_y = 200;
     initial_data.angle_x = 0;
     initial_data.temperature = 75;
@@ -492,14 +502,14 @@ int main() {
             actuator_output.steering != last_actuator_output.steering ||
             actuator_output.arrived != last_actuator_output.arrived ||
             force_update) {
-            write_actuator_commands_to_bridge(TRUCK_ID, actuator_output);
+            write_actuator_commands_to_bridge(g_truck_id, actuator_output);
             last_actuator_output = actuator_output;
         }
 
         if (state.automatic != last_state.automatic ||
             state.fault != last_state.fault ||
             force_update) {
-            write_truck_state_to_bridge(TRUCK_ID, state);
+            write_truck_state_to_bridge(g_truck_id, state);
             last_state = state;
         }
 

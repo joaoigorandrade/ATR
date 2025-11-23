@@ -13,7 +13,9 @@ cleanup() {
     if [ ! -z "$BRIDGE_PID" ]; then kill $BRIDGE_PID 2>/dev/null; fi
     if [ ! -z "$SIM_PID" ]; then kill $SIM_PID 2>/dev/null; fi
     if [ ! -z "$MGMT_PID" ]; then kill $MGMT_PID 2>/dev/null; fi
-    if [ ! -z "$TRUCK_PID" ]; then kill $TRUCK_PID 2>/dev/null; fi
+    if [ ! -z "$TRUCK1_PID" ]; then kill $TRUCK1_PID 2>/dev/null; fi
+    if [ ! -z "$TRUCK2_PID" ]; then kill $TRUCK2_PID 2>/dev/null; fi
+    if [ ! -z "$TRUCK3_PID" ]; then kill $TRUCK3_PID 2>/dev/null; fi
     echo "All components stopped"
     exit 0
 }
@@ -115,7 +117,7 @@ echo ""
 echo "1. MQTT Bridge (background)"
 echo "2. Mine Simulation (Pygame window)"
 echo "3. Mine Management (Tkinter window)"
-echo "4. C++ Truck Control (Terminal)"
+echo "4. C++ Truck Control (Terminal - 3 instances)"
 echo ""
 echo "Press Ctrl+C in this terminal to stop all components"
 echo "========================================="
@@ -141,9 +143,18 @@ echo "[Started] Mine Management (PID: $MGMT_PID)"
 
 sleep 2
 
-./build/truck_control &
-TRUCK_PID=$!
-echo "[Started] Truck Control (PID: $TRUCK_PID)"
+# Launch 3 truck instances
+./build/truck_control 1 &
+TRUCK1_PID=$!
+echo "[Started] Truck 1 Control (PID: $TRUCK1_PID)"
+
+./build/truck_control 2 &
+TRUCK2_PID=$!
+echo "[Started] Truck 2 Control (PID: $TRUCK2_PID)"
+
+./build/truck_control 3 &
+TRUCK3_PID=$!
+echo "[Started] Truck 3 Control (PID: $TRUCK3_PID)"
 
 echo ""
 echo "All components running!"
@@ -152,7 +163,7 @@ echo "To stop all components, press Ctrl+C"
 echo ""
 
 # Wait for any process to exit
-wait $BRIDGE_PID $SIM_PID $MGMT_PID $TRUCK_PID 2>/dev/null
+wait $BRIDGE_PID $SIM_PID $MGMT_PID $TRUCK1_PID $TRUCK2_PID $TRUCK3_PID 2>/dev/null
 
 echo ""
 echo "System stopped"

@@ -211,7 +211,11 @@ class MineSimulation:
         self.font = pygame.font.Font(None, 24)
         self.small_font = pygame.font.Font(None, 20)
 
-        self.trucks = {DEFAULT_TRUCK_ID: Truck(DEFAULT_TRUCK_ID, DEFAULT_TRUCK_X, DEFAULT_TRUCK_Y)}
+        self.trucks = {
+            1: Truck(1, 100, 200),
+            2: Truck(2, 200, 300),
+            3: Truck(3, 300, 400)
+        }
 
         self.mqtt_client = None
         self.mqtt_connected = False

@@ -39,10 +39,10 @@ MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 
 # Topics
-TOPIC_SENSORS = "truck/1/sensors"
-TOPIC_STATE = "truck/1/state"
-TOPIC_COMMANDS = "truck/1/commands"
-TOPIC_SETPOINT = "truck/1/setpoint"
+TOPIC_SENSORS = "truck/+/sensors"
+TOPIC_STATE = "truck/+/state"
+TOPIC_COMMANDS = "truck/+/commands"
+TOPIC_SETPOINT = "truck/+/setpoint"
 
 class MQTTBridge:
     """MQTT Bridge for file-based C++/MQTT communication"""
