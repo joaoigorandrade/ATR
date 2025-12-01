@@ -4,6 +4,7 @@
 #include <chrono>
 #include <pthread.h>
 #include <cstring>
+#include <vector>
 
 FaultMonitoring::FaultMonitoring(CircularBuffer& buffer, int period_ms, PerformanceMonitor* perf_monitor)
     : buffer_(buffer),
@@ -142,8 +143,13 @@ void FaultMonitoring::notify_fault_event(FaultType fault_type, const SensorData&
         << "pos_x" << data.position_x
         << "pos_y" << data.position_y;
 
-    std::lock_guard<std::mutex> lock(callback_mutex_);
-    for (const auto& callback : callbacks_) {
+    std::vector<FaultCallback> callbacks_copy;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        callbacks_copy = callbacks_;
+    }
+
+    for (const auto& callback : callbacks_copy) {
         callback(fault_type, data);
     }
 }

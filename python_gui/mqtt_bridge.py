@@ -45,16 +45,13 @@ except ImportError:
     print(f"{Colors.BRIGHT_YELLOW}  Install with: pip3 install paho-mqtt{Colors.RESET}")
     exit(1)
 
-# Directories for file-based communication
 BRIDGE_DIR = "bridge"
 TO_MQTT_DIR = os.path.join(BRIDGE_DIR, "to_mqtt")
 FROM_MQTT_DIR = os.path.join(BRIDGE_DIR, "from_mqtt")
 
-# MQTT Configuration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 
-# Topics
 TOPIC_SENSORS = "truck/+/sensors"
 TOPIC_STATE = "truck/+/state"
 TOPIC_COMMANDS = "truck/+/commands"
@@ -64,17 +61,13 @@ class MQTTBridge:
     """MQTT Bridge for file-based C++/MQTT communication"""
 
     def __init__(self):
-        # Create bridge directories
         Path(TO_MQTT_DIR).mkdir(parents=True, exist_ok=True)
         Path(FROM_MQTT_DIR).mkdir(parents=True, exist_ok=True)
 
-        # Clean old files
         self.clean_directories()
         
-        # Track truck positions for collision avoidance support
         self.truck_positions = {}
 
-        # MQTT setup
         self.mqtt_client = mqtt.Client(client_id="mqtt_bridge")
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
@@ -139,10 +132,8 @@ class MQTTBridge:
                 y = data.get('target_y')
                 print(f"{Colors.BRIGHT_YELLOW}← Setpoint:{Colors.RESET} {Colors.BRIGHT_WHITE}({x}, {y}){Colors.RESET}")
             
-            # Update truck positions and generate obstacle files
             if 'sensors' in msg.topic:
                 try:
-                    # Extract truck ID from topic "truck/{id}/sensors"
                     parts = msg.topic.split('/')
                     if len(parts) >= 2:
                         truck_id = int(parts[1])
@@ -159,25 +150,11 @@ class MQTTBridge:
             print(f"{Colors.BRIGHT_RED}✖ Error processing MQTT message: {Colors.YELLOW}{e}{Colors.RESET}")
 
     def generate_obstacle_files(self, source_truck_id):
-        """Generate obstacle files for all other trucks"""
         timestamp = int(time.time() * 1000)
         
-        # For each known truck
         for dest_truck_id in self.truck_positions.keys():
-            # Don't generate file for the source truck itself
-            # (it knows where it is, and we are generating files FOR dest_truck_id)
             if dest_truck_id == source_truck_id:
                 continue
-                
-            # But wait, we want to update EVERYONE about the NEW position of source_truck_id?
-            # Or update source_truck_id about EVERYONE ELSE?
-            
-            # Strategy: When we receive an update from X, we assume X moved.
-            # We should notify everyone else about X's new position?
-            # OR we can just dump the 'world state' to everyone.
-            
-            # Let's generate a file for `dest_truck_id` that contains ALL other trucks.
-            
             obstacles = []
             for other_id, pos in self.truck_positions.items():
                 if other_id != dest_truck_id:
@@ -204,7 +181,6 @@ class MQTTBridge:
                 print(f"Error writing obstacle file: {e}")
 
     def check_outgoing_messages(self):
-        """Check for messages from C++ to publish via MQTT"""
         try:
             json_files = []
             try:

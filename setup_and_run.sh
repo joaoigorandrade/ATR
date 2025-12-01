@@ -2,7 +2,7 @@
 # Combined setup and run script for Stage 2 - Builds and runs the complete system
 
 echo "========================================="
-echo "Stage 2 Setup and Run Script"
+echo "Setup and Run Script"
 echo "========================================="
 echo ""
 

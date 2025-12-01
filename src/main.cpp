@@ -73,8 +73,7 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
         if (!fs::exists(bridge_dir)) {
             return false;
         }
-
-        // Collect all sensor files
+        
         for (const auto& entry : fs::directory_iterator(bridge_dir)) {
             if (entry.path().extension() == ".json" &&
                 entry.path().filename().string().find(search_pattern) != std::string::npos) {
@@ -116,9 +115,7 @@ bool read_sensor_data_from_bridge(RawSensorData& data) {
 
         return success;
 
-    } catch (const std::exception& e) {
-        // Log error if needed
-    }
+    } catch (const std::exception& e) { }
 
     return false;
 }
@@ -462,7 +459,7 @@ int main(int argc, char* argv[]) {
 
 
     RawSensorData initial_data;
-    initial_data.position_x = 100 + (g_truck_id * 50); // Offset initial position
+    initial_data.position_x = 100 + (g_truck_id * 50);
     initial_data.position_y = 200;
     initial_data.angle_x = 0;
     initial_data.temperature = 75;
@@ -548,12 +545,8 @@ int main(int argc, char* argv[]) {
 
 
         SensorData current_sensor = buffer.peek_latest();
-
-        // Use adjusted setpoint for obstacle avoidance
         NavigationSetpoint setpoint = route_planner.calculate_adjusted_setpoint(
             current_sensor.position_x, current_sensor.position_y);
-        
-        // Calculate target angle based on adjusted setpoint
         int dx = setpoint.target_position_x - current_sensor.position_x;
         int dy = setpoint.target_position_y - current_sensor.position_y;
         double angle_rad = std::atan2(dy, dx);
@@ -590,7 +583,7 @@ int main(int argc, char* argv[]) {
 
     LOG_INFO(MAIN) << "event" << "shutdown_start";
 
-    watchdog.stop();  // Stop watchdog first
+    watchdog.stop();
     local_interface.stop();
     data_collector.stop();
     nav_task.stop();
